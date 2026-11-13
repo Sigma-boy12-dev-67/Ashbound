@@ -2,7 +2,7 @@
 'use strict';
 var AB = window.AB;
 var S = AB.scenes;
-AB.VERSION = '1.0.0';
+AB.VERSION = '1.1.0';
 
 function Game(canvas) {
   this.cv = canvas; this.c = canvas.getContext('2d');
@@ -63,8 +63,10 @@ Game.prototype.startRun = function (lo) {
     seed: Math.floor(Math.random() * 1e9), stats: s, hp: s.maxHp,
     weapons: [AB.makeWeapon(lo.w0, tier), AB.makeWeapon(lo.w1, tier)], skills: [lo.sk, null],
     flasks: s.flasks, gold: 60 * L('fortune'), embers: 0, kills: 0, time: 0, damageTaken: 0, bossKills: 0,
-    boonIds: {}, freeOffer: true, turretLife: 480
+    boonIds: {}, freeOffer: true, turretLife: 480, carPotions: 0, carFound: false
   };
+  /* tester shortcut: open the game with ?car in the URL to start every run holding one Car Potion */
+  try { if (/[?&]car(=|&|$)/.test(location.search)) { this.run.carPotions = 1; this.run.carFound = true; } } catch (e) { /* ignore */ }
   this.go('play', { fresh: true });
 };
 Game.prototype.stageComplete = function () {
