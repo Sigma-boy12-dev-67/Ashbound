@@ -1,7 +1,7 @@
 (function () {
 'use strict';
 var AB = window.AB;
-var ACTIONS = ['left', 'right', 'up', 'down', 'jump', 'attack', 'secondary', 'skill1', 'skill2', 'roll', 'interact', 'heal', 'pause', 'confirm', 'back'];
+var ACTIONS = ['left', 'right', 'up', 'down', 'jump', 'attack', 'secondary', 'skill1', 'skill2', 'roll', 'interact', 'heal', 'potion', 'pause', 'confirm', 'back'];
 var held = {}, pressed = {}, released = {};
 ACTIONS.forEach(function (a) { held[a] = {}; pressed[a] = false; released[a] = false; });
 
@@ -22,7 +22,7 @@ var KEYS = {
   KeyK: ['secondary'], KeyX: ['secondary'],
   KeyU: ['skill1'], KeyQ: ['skill1'], KeyI: ['skill2'], KeyR: ['skill2'],
   ShiftLeft: ['roll'], ShiftRight: ['roll'], KeyL: ['roll'], KeyV: ['roll'],
-  KeyE: ['interact'], KeyF: ['interact'], KeyH: ['heal'], KeyG: ['heal'],
+  KeyE: ['interact'], KeyF: ['interact'], KeyH: ['heal'], KeyG: ['heal'], KeyC: ['potion'], KeyB: ['potion'],
   Escape: ['pause', 'back'], KeyP: ['pause'], Backspace: ['back']
 };
 
@@ -53,7 +53,7 @@ var I = AB.input = {
       st.up = ay < -0.55 || b(12); st.down = ay > 0.55 || b(13);
       st.jump = b(0); st.confirm = b(0); st.roll = b(1); st.back = b(1) || b(8);
       st.attack = b(2); st.secondary = b(3); st.interact = b(4); st.skill1 = b(5);
-      st.heal = b(6); st.skill2 = b(7); st.pause = b(9);
+      st.heal = b(6); st.skill2 = b(7); st.pause = b(9); st.potion = b(10) || b(11);
       var any = false;
       for (var k in st) if (st[k]) any = true;
       if (any) I.lastDevice = 'pad';
