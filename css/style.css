@@ -19,6 +19,7 @@ html,body{margin:0;height:100%;background:#06030a;overflow:hidden;overscroll-beh
 #t-s2{right:calc(max(3vmin,env(safe-area-inset-right)) + 14vmin);bottom:38vmin;width:10vmin;height:10vmin}
 #t-int{left:calc(max(3vmin,env(safe-area-inset-left)) + 33vmin);bottom:4vmin;width:11vmin;height:11vmin;border-radius:12px}
 #t-heal{left:calc(max(3vmin,env(safe-area-inset-left)) + 33vmin);bottom:17vmin;width:11vmin;height:11vmin;font-size:2vmin;border-radius:12px}
+#t-car{left:calc(max(3vmin,env(safe-area-inset-left)) + 33vmin);bottom:30vmin;width:11vmin;height:11vmin;font-size:2vmin;border-radius:12px;background:rgba(150,70,200,.6);border-color:#e0a0ff}
 #t-pause{right:2vmin;top:2vmin;width:8vmin;height:8vmin;border-radius:8px;opacity:.7}
 #rotate{position:fixed;inset:0;z-index:9;background:#06030a;color:#ffb04a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;font-size:18px;letter-spacing:.15em}
 #rotate small{color:#8a7f90;letter-spacing:0}
