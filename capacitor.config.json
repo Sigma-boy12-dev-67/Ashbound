@@ -1,0 +1,8 @@
+{
+  "appId": "com.yourstudio.ashbound",
+  "appName": "Ashbound",
+  "webDir": "www",
+  "backgroundColor": "#06030a",
+  "android": { "allowMixedContent": false, "backgroundColor": "#06030a" },
+  "server": { "androidScheme": "https" }
+}

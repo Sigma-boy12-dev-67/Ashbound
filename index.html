@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ashbound</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#06030a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="description" content="Ashbound - a fast, brutal roguelite action-platformer. Descend, die, grow stronger.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="loading">ASHBOUND</div>
+<div id="stage"><canvas id="game" width="480" height="270"></canvas></div>
+
+<div id="touch" class="hidden">
+  <div id="stick"><div id="knob"></div></div>
+  <button class="tb" id="t-pause" data-a="pause">II</button>
+  <button class="tb" id="t-heal" data-a="heal">FLASK</button>
+  <button class="tb" id="t-int" data-a="interact">USE</button>
+  <button class="tb" id="t-s1" data-a="skill1">S1</button>
+  <button class="tb" id="t-s2" data-a="skill2">S2</button>
+  <button class="tb" id="t-sec" data-a="secondary">ALT</button>
+  <button class="tb big" id="t-atk" data-a="attack">ATK</button>
+  <button class="tb big" id="t-jump" data-a="jump">JUMP</button>
+  <button class="tb" id="t-roll" data-a="roll">ROLL</button>
+</div>
+<div id="rotate" class="hidden"><div>ROTATE YOUR DEVICE</div><small>Ashbound plays in landscape</small></div>
+
+<script src="js/util.js"></script>
+<script src="js/save.js"></script>
+<script src="js/input.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/gfx.js"></script>
+<script src="js/data.js"></script>
+<script src="js/level.js"></script>
+<script src="js/render.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/playerdraw.js"></script>
+<script src="js/enemies.js"></script>
+<script src="js/bosses.js"></script>
+<script src="js/world.js"></script>
+<script src="js/worlddraw.js"></script>
+<script src="js/hud.js"></script>
+<script src="js/modals.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

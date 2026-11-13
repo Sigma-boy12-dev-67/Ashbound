@@ -1,0 +1,22 @@
+{
+  "name": "ashbound",
+  "version": "1.0.0",
+  "description": "Ashbound - a roguelite action-platformer",
+  "private": true,
+  "scripts": {
+    "build:www": "node tools/build-www.js",
+    "serve": "python3 -m http.server 8123",
+    "icons": "node tools/make-icons.js",
+    "android:add": "npm run build:www && npx cap add android",
+    "android:sync": "npm run build:www && npx cap sync android",
+    "android:open": "npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/core": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0",
+    "playwright": "^1.40.0"
+  }
+}
