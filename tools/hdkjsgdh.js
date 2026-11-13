@@ -1,1 +1,0 @@
-akr bakr mambey bo
