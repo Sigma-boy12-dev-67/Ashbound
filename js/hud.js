@@ -4,8 +4,8 @@ var AB = window.AB, T = AB.T;
 
 function keyLabel(action) {
   var d = AB.input.lastDevice;
-  var kb = { attack: 'J', secondary: 'K', skill1: 'U', skill2: 'I', interact: 'E', heal: 'H', roll: 'SHIFT', jump: 'SPACE' };
-  var pad = { attack: 'X', secondary: 'Y', skill1: 'RB', skill2: 'RT', interact: 'LB', heal: 'LT', roll: 'B', jump: 'A' };
+  var kb = { attack: 'J', secondary: 'K', skill1: 'U', skill2: 'I', interact: 'E', heal: 'H', roll: 'SHIFT', jump: 'SPACE', potion: 'C' };
+  var pad = { attack: 'X', secondary: 'Y', skill1: 'RB', skill2: 'RT', interact: 'LB', heal: 'LT', roll: 'B', jump: 'A', potion: 'L3' };
   if (d === 'pad') return pad[action] || '';
   if (d === 'touch') return '';
   return kb[action] || '';
@@ -64,6 +64,13 @@ AB.drawHUD = function (c, w, game) {
         AB.text(c, Math.ceil(cdv / 60), sx + 14, by + 8, '#fff', 1, 'c', true);
       } else if ((t >> 3 & 1) && p.cd[i] === 0 && p.cdReady !== false) { c.fillStyle = 'rgba(255,255,255,0.04)'; c.fillRect(sx + 1, by + 1, 26, 26); }
     }
+  }
+  if ((run.carPotions || 0) > 0) { // ultra rare Car Potion slot
+    var qx = bx - 34, pulse = 0.5 + Math.sin(t * 0.15) * 0.25;
+    slot(c, qx, by, null, '#e0a0ff', keyLabel('potion'));
+    AB.glow(c, qx + 14, by + 10, 26, '#e0a0ff', pulse);
+    AB.drawIcon(c, 'flask', qx + 6, by + 1, 1, '#e0a0ff');
+    AB.text(c, 'CAR', qx + 14, by - 8, '#e0a0ff', 1, 'c', true);
   }
   if (p.buffT > 0) { AB.drawIcon(c, 'warcry', bx + 138, by + 6, 1, '#ff5a5a'); AB.text(c, Math.ceil(p.buffT / 60), bx + 146, by + 22, '#ff8a8a', 1, 'c', true); }
 
