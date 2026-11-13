@@ -13,7 +13,7 @@ function World(game, run, stageIdx) {
   this.enemies = []; this.projs = []; this.particles = []; this.pickups = []; this.texts = [];
   this.props = []; this.inter = []; this.allies = []; this.bolts = []; this.rings = [];
   this.t = 0; this.freeze = 0; this.trauma = 0; this.flashA = 0; this.flashC = '#fff';
-  this.cam = { x: 0, y: 0 }; this.slowmo = 0;
+  this.cam = { x: 0, y: 0 }; this.slowmo = 0; this.car = null;
   this.banner = null; this.focus = null; this.modal = null; this.killCombo = 0; this.comboT = 0;
   this.toasts = []; this.bossRef = null; this.over = false; this.exitOpen = false;
   this.rng = AB.makeRng(run.seed * 31 + stageIdx);
@@ -144,7 +144,7 @@ World.prototype.explode = function (x, y, r, dmg, team, o) {
       if (d < r + e.w / 2) this.damageEnemy(e, dmg * (1 - d / (r * 2.2)), { kb: 4, dir: AB.sign(e.x + e.w / 2 - x) || 1, ignite: !!o.ignite, src: 'skill', color: '#ffb04a', stun: 25 });
     }
     this.hitProps({ x: x - r / 2, y: y - r / 2, w: r, h: r });
-  } else {
+  } else if (team === 'e' && !this.car) { // no enemy blast can hurt you while the car is rampaging
     var p = this.player;
     if (!p.dead && AB.dist(x, y, p.x + 5, p.y + 11) < r + 6) this.hurtPlayer(dmg, x, { explosion: true });
   }
@@ -254,10 +254,10 @@ World.prototype.killEnemy = function (e, o) {
   this.burst(cx, cy, e.blood || '#b02a3a', 14, { vx: 3, vy: 3, life: 28, size: 3 });
   this.burst(cx, cy, '#fff', 6, { vx: 3, vy: 3, life: 10, size: 1, g: 0 });
   this.ring(cx, cy, 20, '#fff');
-  if (!e.boss) { AB.sfx('die'); this.hitstop(4); this.shake(2); }
+  if (!e.boss && !(o && o.car)) { AB.sfx('die'); this.hitstop(4); this.shake(2); }
   if (e.def.onDeath) e.def.onDeath(e, this);
   if (e.elite === 'volatile') this.explode(cx, cy, 44, 18 * this.biome.dmgMul, 'e', { color: '#ff5a3a' });
-  this.dropLoot(e);
+  if (o && o.car && !e.boss) this.carLoot(e); else this.dropLoot(e);
 };
 
 World.prototype.mkPickup = function (kind, x, y, val, o) {
@@ -278,6 +278,7 @@ World.prototype.dropLoot = function (e) {
     var wp = this.randomWeapon(1);
     this.pickups.push(this.mkPickup('weapon', cx, cy - 6, 1, { vy: -3, weapon: wp }));
   }
+  if (!e.boss) this.rollCarPotion(e.elite ? AB.CAR_DROP.elite : AB.CAR_DROP.normal, cx, cy - 6);
 };
 World.prototype.addGold = function (n) { this.run.gold += n; };
 
@@ -396,6 +397,7 @@ World.prototype.activate = function (it) {
       } else this.pickups.push(this.mkPickup('heart', cx, cy - 6, 40, { vy: -4 }));
       var em = Math.round((3 + this.stage * 2) * p.s.emberMul);
       for (i = 0; i < em; i++) this.pickups.push(this.mkPickup('ember', cx, cy, 1, { vx: AB.rand(-2, 2), vy: AB.rand(-5, -2) }));
+      this.rollCarPotion(it.big ? AB.CAR_DROP.bigChest : AB.CAR_DROP.chest, cx, cy - 10);
       break; }
     case 'altar':
       if (it.used) { this.toast('The altar is spent.', 'skull', '#aaa'); return; }
@@ -506,6 +508,8 @@ World.prototype.update = function (I) {
   if (this.freeze > 0) { this.freeze--; this.updateFx(true); return; }
   if (this.slowmo > 0) { this.slowmo--; if (this.slowmo % 3 !== 0) { this.updateFx(true); return; } }
 
+  if (I.pressed('potion')) this.startCarPotion();
+  this.updateCar();
   p.update(this, I);
   if (this.over && p.dead) { this.overT++; }
 
@@ -563,6 +567,7 @@ World.prototype.updatePickups = function () {
       if (pk.kind === 'gold') { this.run.gold += pk.val; AB.sfx('coin'); this.burst(pk.x + 4, pk.y + 4, '#ffd24a', 3, { life: 10, size: 1, g: 0 }); }
       else if (pk.kind === 'ember') { this.run.embers += pk.val; AB.sfx('ember'); this.burst(pk.x + 4, pk.y + 4, '#ffb04a', 4, { life: 12, size: 1, g: 0, glow: true }); }
       else if (pk.kind === 'heart') { p.heal(this, pk.val); AB.sfx('heal'); }
+      else if (pk.kind === 'carpotion') this.collectCarPotion();
       else continue;
       this.pickups.splice(i, 1);
     }
@@ -593,6 +598,7 @@ World.prototype.updateFx = function (frozen) {
 
 World.prototype.updateCamera = function () {
   var p = this.player, L = this.level, c = this.cam;
+  if (this.carCamera()) return;
   var tx = p.x + 5 + p.face * 26 - AB.W / 2, ty = p.y + 11 - AB.H * 0.58;
   if (this.bossArena && this.bossArena.state === 1) { tx = AB.clamp(tx, this.bossArena.x0 - 24, this.bossArena.x1 - AB.W + 24); }
   tx = AB.clamp(tx, 0, L.W * T - AB.W); ty = AB.clamp(ty, 0, L.H * T - AB.H);
