@@ -140,6 +140,8 @@ World.prototype.drawPickups = function (c, cx, cy, t) {
       var sk = AB.SKILLS[pk.skill], b2 = Math.sin(t * 0.08 + pk.id) * 2;
       AB.glow(c, x + 4, y + 2, 28, sk.color, 0.6);
       AB.drawIcon(c, sk.icon, x - 4, y - 10 + b2, 1, sk.color);
+    } else if (pk.kind === 'carpotion') {
+      this.drawCarPickup(c, pk, x, y, t);
     }
   }
 };
@@ -259,6 +261,7 @@ World.prototype.draw = function (c) {
   for (i = 0; i < this.allies.length; i++) this.allies[i].draw(c, cx, cy, t);
   for (i = 0; i < this.enemies.length; i++) AB.drawEnemy(this.enemies[i], c, cx, cy, t);
   AB.drawPlayer(c, this.player, cx, cy, t);
+  this.drawCar(c, cx, cy, t);
   this.drawFx(c, cx, cy, t);
   this.drawLighting(c, cx, cy, t);
   this.drawAsh(c, t);
