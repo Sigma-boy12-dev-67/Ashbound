@@ -4,7 +4,7 @@ var AB = window.AB;
 function R(c, col, x, y, w, h) { c.fillStyle = col; c.fillRect(x, y, w, h); }
 var D2R = Math.PI / 180;
 
-AB.drawPlayer = function (c, p, cx, cy, t) {
+AB.drawPlayerLegacy = function (c, p, cx, cy, t) {
   if (p.dead && p.deadT > 90) return;
   var ox = Math.round(p.x + 5 - cx), oy = Math.round(p.y + 22 - cy), f = p.face;
   var fl = p.flash > 0;
