@@ -79,6 +79,7 @@ var I = AB.input = {
 };
 
 function onKey(e, v) {
+  if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;   // typing in the admin menu
   var acts = KEYS[e.code];
   if (!acts) return;
   e.preventDefault();
