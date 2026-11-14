@@ -151,7 +151,18 @@ var ICONS = {
 };
 AB.ICONS = ICONS;
 var iconCache = {};
+/* Image icons (the warrior's sword and bow, from AB.SPRITES.icons): a 16px and a 32px version of each. */
+var imgIcons = {};
+(function () {
+  var D = AB.SPRITES && AB.SPRITES.icons; if (!D) return;
+  Object.keys(D).forEach(function (id) {
+    imgIcons[id] = {};
+    Object.keys(D[id]).forEach(function (sz) { var im = new Image(); im.onload = function () { im.ok = true; }; im.src = D[id][sz]; imgIcons[id][sz] = im; });
+  });
+})();
+AB.iconImage = function (id, big) { var o = imgIcons[id]; if (!o) return null; var im = big ? o[32] : o[16]; return im && im.ok ? im : null; };
 function iconSprite(id, color) {
+  var im = AB.iconImage(id, false); if (im) return im;
   var k = id + '|' + color, s = iconCache[k];
   if (s) return s;
   var m = ICONS[id] || ICONS.star;
@@ -169,6 +180,8 @@ function iconSprite(id, color) {
 // drawIcon(c, id, x, y, scale, color): top-left at x,y; 16px at scale 1
 AB.drawIcon = function (c, id, x, y, scale, color) {
   scale = scale || 1;
+  var big = scale >= 1.8 ? AB.iconImage(id, true) : null;
+  if (big) { c.drawImage(big, Math.round(x), Math.round(y), Math.round(16 * scale), Math.round(16 * scale)); return; }
   c.drawImage(iconSprite(id, color), Math.round(x), Math.round(y), Math.round(16 * scale), Math.round(16 * scale));
 };
 })();
