@@ -300,6 +300,7 @@ World.prototype.hitProps = function (box) {
 World.prototype.hurtPlayer = function (dmg, srcX, o) {
   var p = this.player, s = p.s; o = o || {};
   if (p.dead || p.iframes > 0 || this.over) return 'ignored';
+  if (AB.cheat && AB.cheat.god) return 'ignored';
   if (p.noHurtT > 0 && !o.spike) return 'ignored';
   // shield
   if (p.guard > 0 && !o.spike && !o.explosion) {
