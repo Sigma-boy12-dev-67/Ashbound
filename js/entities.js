@@ -93,6 +93,7 @@ Player.prototype.dmgMul = function () {
   var s = this.s, m = s.dmg;
   if (this.hp / s.maxHp < 0.35) m += s.lastStand;
   if (this.buffT > 0) m += 0.35;
+  if (AB.cheat && AB.cheat.oneHit) m *= 100;
   return m;
 };
 Player.prototype.weapon = function (slot) { return this.run.weapons[slot]; };
