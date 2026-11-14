@@ -2,7 +2,7 @@
 'use strict';
 var AB = window.AB;
 var S = AB.scenes;
-AB.VERSION = '1.2.0';
+AB.VERSION = '1.3.0';
 
 function Game(canvas) {
   this.cv = canvas; this.c = canvas.getContext('2d');
@@ -30,6 +30,7 @@ Game.prototype.setScene = function (name, arg) {
 };
 Game.prototype.tick = function () {
   var I = AB.input;
+  if (AB.adminOpen) { I.poll(); I.endStep(); return; }   // admin menu open = paused
   this.t++; I.poll();
   if (this.fadeDir > 0) {
     this.fade += 0.09;
