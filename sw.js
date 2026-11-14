@@ -1,5 +1,5 @@
 /* Ashbound offline cache. Bump VERSION whenever any game file changes. */
-var VERSION = 'ashbound-v1.3.0';
+var VERSION = 'ashbound-v1.3.1';
 var FILES = ['./', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   'js/util.js', 'js/save.js', 'js/input.js', 'js/audio.js', 'js/sprites.js', 'js/gfx.js', 'js/data.js', 'js/level.js', 'js/render.js',
@@ -15,5 +15,10 @@ self.addEventListener('activate', function (e) {
 });
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
+  /* adminconfig.js holds your admin password hash and gets edited without a game release: always try the network first */
+  if (/\/js\/adminconfig\.js$/.test(new URL(e.request.url).pathname)) {
+    e.respondWith(fetch(e.request, { cache: 'no-store' }).catch(function () { return caches.match(e.request); }));
+    return;
+  }
   e.respondWith(caches.match(e.request).then(function (hit) { return hit || fetch(e.request); }));
 });
