@@ -16,7 +16,7 @@ if (DATA) {
   Object.keys(DATA).forEach(function (n) {
     var im = new Image(), m = DATA[n];
     im.onload = function () { if (--left === 0) ready = true; };
-    im.src = m.src; F[n] = { img: im, w: m.w, h: m.h, ax: m.ax, hand: m.hand, hand2: m.hand2 };
+    im.src = m.src; F[n] = { img: im, w: m.w, h: m.h, ax: m.ax, head: m.head, hand: m.hand, hand2: m.hand2 };
   });
 }
 function tinted(n, col) {
@@ -173,12 +173,17 @@ AB.drawPlayer = function (c, p, cx, cy, t) {
   if (st === 'jump') { put(c, 'walk', { rot: -0.04, sy: 1.03, sx: 0.98, flash: fl }); c.restore(); return; }
   if (st === 'fall') { put(c, 'idle', { rot: 0.05, sy: 1.04, sx: 0.97, dx: 0.5, flash: fl }); c.restore(); return; }
 
-  /* ---------------- run: step cycle (walk pose <-> passing pose) with a bounce ---------------- */
+  /* ---------------- run: eased step cycle ----------------
+     contact (walk pose) -> passing (upright pose) -> contact -> passing, cross-faded so nothing snaps.
+     The head/torso are kept lined up between the two poses and the body bobs and sways with the stride. */
   if (st === 'run') {
-    var ph = p.anim * 1.7, k = Math.floor(ph / (PI / 2)) & 3, sw = Math.abs(Math.sin(ph));
-    var bob = -Math.round(sw * 1.4 * 2) / 2;
-    if (k === 0 || k === 2) put(c, 'walk', { dy: bob * 0.4, dx: k === 2 ? -0.5 : 0.5, rot: 0.03, flash: fl, sx: sx, sy: sy });
-    else put(c, 'idle', { dy: bob, rot: 0.1, dx: 1, flash: fl, sx: sx, sy: sy });
+    var ph = p.anim, cs = Math.cos(ph), wk = cs * cs;                  // wk: 1 at contact, 0 at passing
+    var bob = -Math.round((1 - wk) * 1.6);                                // body rises as the legs pass
+    var hw = F.walk.head - F.walk.ax, hi = F.idle.head - F.idle.ax, hx = hi + (hw - hi) * wk;
+    var sway = Math.sin(ph * 2) * 0.012;
+    var aw = wk >= 0.92 ? 1 : (wk <= 0.08 ? 0 : ease((wk - 0.08) / 0.84));
+    if (aw < 1) put(c, 'idle', { dy: bob, dx: hx - hi, rot: 0.07 + sway, flash: fl, sx: sx, sy: sy });
+    if (aw > 0) { c.globalAlpha = blink * aw; put(c, 'walk', { dy: bob * 0.5, dx: hx - hw, rot: 0.01 + sway, flash: fl, sx: sx, sy: sy }); }
     c.restore(); return;
   }
 
