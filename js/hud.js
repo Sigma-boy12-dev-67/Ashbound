@@ -38,7 +38,7 @@ AB.drawHUD = function (c, w, game) {
   AB.drawIcon(c, 'coin', 10, 40, 0.7, '#ffd24a'); AB.text(c, run.gold, 24, 43, '#ffe08a', 1, 'l', true);
   AB.drawIcon(c, 'ember', 70, 40, 0.7, '#ff9040'); AB.text(c, run.embers, 84, 43, '#ffb070', 1, 'l', true);
   AB.text(c, AB.fmtTime(run.time), 10, 54, '#8a8096', 1, 'l', true);
-  AB.text(c, 'STAGE ' + (w.stage + 1) + '/3', 126, 54, '#8a8096', 1, 'r', true);
+  AB.text(c, 'STAGE ' + (w.stage + 1) + '/' + AB.BIOMES.length, 126, 54, '#8a8096', 1, 'r', true);
 
   /* ---- weapon & skill slots ---- */
   var bx = Math.round(AB.W / 2 - 62), by = AB.H - 36;
@@ -90,7 +90,8 @@ AB.drawHUD = function (c, w, game) {
     var bw = 200, bX = Math.round(AB.W / 2 - bw / 2);
     AB.text(c, bo.def.title, AB.W / 2, 10, '#ffd0c0', 1, 'c', true);
     AB.bar(c, bX, 22, bw, 7, bo.hp, bo.maxHp, '#c8283a', '#2a1014');
-    c.fillStyle = 'rgba(255,255,255,0.2)'; c.fillRect(bX + Math.round(bw / 2), 22, 1, 7);
+    c.fillStyle = 'rgba(255,255,255,0.2)';
+    if (bo.def.phases === 3) { c.fillRect(bX + Math.round(bw / 3), 22, 1, 7); c.fillRect(bX + Math.round(bw * 2 / 3), 22, 1, 7); } else c.fillRect(bX + Math.round(bw / 2), 22, 1, 7);
     c.fillStyle = '#7a5a4a'; c.fillRect(bX - 3, 20, 3, 11); c.fillRect(bX + bw, 20, 3, 11);
   }
 
