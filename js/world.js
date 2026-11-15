@@ -478,7 +478,7 @@ World.prototype.updateArenas = function () {
     var bd = AB.BOSSES[b.type];
     this.bossRef = AB.spawnEnemy(this, b.type, (b.x0 + b.x1) / 2 + 120, b.y - 100, { boss: true, spawnFx: true });
     this.banner = { title: bd.title, sub: bd.sub, t: 0, max: 200, boss: true };
-    AB.audio.musicPlay('boss'); AB.audio.setIntensity(0.9);
+    AB.audio.musicPlay(this.biome.bossMusic || 'boss'); AB.audio.setIntensity(0.9);
     this.bossArena = b;
   }
   if (b && b.state === 1 && this.bossRef && this.bossRef.dead) {
