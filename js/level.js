@@ -117,7 +117,7 @@ Level.prototype.build = function () {
     plats.push({ x0: x0 + 5, x1: x0 + 9, y: gy - 4 });
     plats.push({ x0: x0 + 26, x1: x0 + 30, y: gy - 4 });
     plats.push({ x0: x0 + 15, x1: x0 + 20, y: gy - 7 });
-    var waves = 2 + (stage >= 1 ? 1 : 0);
+    var waves = 2 + (stage >= 1 ? 1 : 0) + (stage >= 5 ? 1 : 0);
     arenas.push({
       x0: x0 * T, x1: (x1 + 1) * T, y: gy * T, top: topRow * T, waves: waves, state: 0,
       gates: [{ x: x0 + 1, y0: topRow, y1: gy - 1 }, { x: x1 - 1, y0: topRow, y1: gy - 1 }]
@@ -145,10 +145,12 @@ Level.prototype.build = function () {
   function bossRoom() {
     gy = AB.clamp(gy, 27, 31);
     push(3, gy);
-    var x0 = flat(46, 20), x1 = x0 + 45;
-    var topRow = Math.max(3, gy - 20);
+    var aw = B.arenaW || 46, ah = B.arenaH || 20;               // later stages (esp. Hell) fight in bigger rooms
+    var x0 = flat(aw, ah), x1 = x0 + aw - 1;
+    var topRow = Math.max(3, gy - ah);
     plats.push({ x0: x0 + 6, x1: x0 + 11, y: gy - 5 });
-    plats.push({ x0: x0 + 34, x1: x0 + 39, y: gy - 5 });
+    plats.push({ x0: x0 + aw - 12, x1: x0 + aw - 7, y: gy - 5 });
+    if (aw > 50) { plats.push({ x0: x0 + Math.round(aw / 2) - 3, x1: x0 + Math.round(aw / 2) + 2, y: gy - 9 }); }
     boss = {
       type: B.boss, x0: x0 * T, x1: (x1 + 1) * T, y: gy * T, top: topRow * T, state: 0,
       gates: [{ x: x0 + 1, y0: topRow, y1: gy - 1 }, { x: x1 - 1, y0: topRow, y1: gy - 1 }]
@@ -200,7 +202,7 @@ Level.prototype.build = function () {
   var spawns = this.spawns = [];
   var pool = [];
   for (var k in B.pool) for (var n = 0; n < B.pool[k]; n++) pool.push(k);
-  var eliteP = 0.07 + 0.05 * stage;
+  var eliteP = Math.min(0.36, 0.07 + 0.05 * stage);
   for (var s = 0; s < spawnPts.length; s++) {
     var sp = spawnPts[s];
     if (sp.x < 22 * T) continue;
@@ -222,7 +224,7 @@ Level.prototype.build = function () {
 Level.prototype.waveList = function (wave, nWaves, rng) {
   var B = this.biome, pool = [];
   for (var k in B.pool) for (var n = 0; n < B.pool[k]; n++) pool.push(k);
-  var count = 3 + wave + this.stage + (rng() < 0.4 ? 1 : 0);
+  var count = 3 + wave + Math.min(this.stage, 5) + (rng() < 0.4 ? 1 : 0);
   var out = [];
   for (var i = 0; i < count; i++) out.push({ type: AB.rpick(rng, pool), elite: wave === nWaves - 1 && i === 0 && this.stage >= 0 && rng() < 0.55 });
   return out;
