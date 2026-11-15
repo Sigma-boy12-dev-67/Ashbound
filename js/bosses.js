@@ -361,4 +361,7 @@ B.sovereign = {
     c.setTransform(1, 0, 0, 1, 0, 0);
   }
 };
+
+/* shared toolkit for js/bosses2.js */
+AB.bossKit = { R: R, Kf: Kf, arena: arena, aim: aim, bossBegin: bossBegin, teleMark: teleMark, cleanup: cleanup, enrage: enrage, roar: roar, hitBox: hitBox, choose: choose, pickEnd: pickEnd };
 })();
