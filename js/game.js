@@ -2,7 +2,7 @@
 'use strict';
 var AB = window.AB;
 var S = AB.scenes;
-AB.VERSION = '1.3.1';
+AB.VERSION = '1.4.2';
 
 function Game(canvas) {
   this.cv = canvas; this.c = canvas.getContext('2d');
@@ -72,7 +72,7 @@ Game.prototype.startRun = function (lo) {
 };
 Game.prototype.stageComplete = function () {
   var self = this, w = this.world, r = this.run;
-  if (w.stage >= 2) { this.later(function () { self.finishRun(true); }); return; }
+  if (w.stage >= AB.BIOMES.length - 1) { this.later(function () { self.finishRun(true); }); return; }
   r.hp = Math.min(r.stats.maxHp, Math.round(w.player.hp + r.stats.maxHp * 0.3));
   r.flasks = Math.min(r.stats.flasks, r.flasks + 1);
   var next = w.stage + 1;
@@ -84,14 +84,14 @@ Game.prototype.stageComplete = function () {
 Game.prototype.finishRun = function (win, abandoned) {
   var r = this.run, w = this.world, sv = AB.save.data, st = sv.stats;
   if (!r) { this.go('title'); return; }
-  var cleared = win ? 3 : w.stage;
+  var cleared = win ? AB.BIOMES.length : w.stage;
   var earned = r.embers + cleared * 10 + (win ? 150 * (1 + sv.asc) : 0);
   sv.embers += earned; st.runs++; st.totalTime += r.time;
-  st.bestStage = Math.max(st.bestStage, win ? 3 : w.stage + 1);
+  st.bestStage = Math.max(st.bestStage, win ? AB.BIOMES.length : w.stage + 1);
   if (win) { st.wins++; if (!st.bestTime || r.time < st.bestTime) st.bestTime = r.time; } else st.deaths++;
   AB.save.write();
   var res = { win: win, time: r.time, kills: r.kills, bossKills: r.bossKills, gold: r.gold, damage: r.damageTaken, earned: earned,
-    where: abandoned ? 'You abandoned the descent' : 'Fallen in ' + AB.BIOMES[Math.min(2, w.stage)].name };
+    where: win ? 'You conquered Hell' : abandoned ? 'You abandoned the descent' : 'Fallen in ' + AB.BIOMES[Math.min(AB.BIOMES.length - 1, w.stage)].name };
   this.world = null; this.run = null;
   this.pending = null; this.fadeDir = 1; this.pending = { name: 'results', arg: res };
 };
