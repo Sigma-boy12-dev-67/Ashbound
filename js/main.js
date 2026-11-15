@@ -40,11 +40,18 @@ function boot() {
 
   game.setScene('title');
   var step = 1000 / 60, acc = 0, last = performance.now();
+  /* a single error must never freeze the game: keep the loop alive and show what went wrong */
   function frame(now) {
     acc += Math.min(100, now - last); last = now;
     var guard = 0;
-    while (acc >= step && guard++ < 6) { game.tick(); acc -= step; }
-    game.render();
+    try { while (acc >= step && guard++ < 6) { game.tick(); acc -= step; } } catch (x) { AB.lastError = 'update: ' + (x && x.message); acc = 0; if (window.console) console.error(x); }
+    try { game.render(); } catch (x2) {
+      AB.lastError = 'draw: ' + (x2 && x2.message); if (window.console) console.error(x2);
+      try { var c = game.c; c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; } catch (x3) { /* ignore */ }
+    }
+    if (AB.lastError) {
+      try { var cc = game.c; cc.setTransform(1, 0, 0, 1, 0, 0); cc.globalAlpha = 1; cc.fillStyle = 'rgba(0,0,0,0.7)'; cc.fillRect(0, AB.H - 14, AB.W, 14); cc.fillStyle = '#ff6a6a'; cc.font = '8px monospace'; cc.fillText('ERROR ' + AB.lastError + ' (v' + AB.VERSION + ')', 4, AB.H - 4); } catch (x4) { /* ignore */ }
+    }
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
