@@ -76,8 +76,19 @@ function ring(e, w, sx, sy, n, sp, off, o) {
 function wrapDraw(fn) {
   return function (e, c, cx, cy, t) {
     e.arenaRef = e.arenaRef || (AB.game && AB.game.world && AB.game.world.bossArena);
-    drawStrikes(e, c, cx, cy, e.strikeCol || '#9aeaff', e.strikeCore);
-    fn(e, c, cx, cy, t);
+    /* a drawing error in one boss must never blank the whole screen */
+    c.save();
+    try {
+      drawStrikes(e, c, cx, cy, e.strikeCol || '#9aeaff', e.strikeCore);
+      fn(e, c, cx, cy, t);
+    } catch (err) {
+      c.restore(); c.save();
+      c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over';
+      var bx = Math.round(e.x - cx), by = Math.round(e.y - cy);
+      c.fillStyle = '#5a1018'; c.fillRect(bx, by, e.w, e.h);
+      c.fillStyle = '#ff3a2a'; c.fillRect(bx + 6, by + 10, 4, 3); c.fillRect(bx + e.w - 10, by + 10, 4, 3);
+    }
+    c.restore(); c.setTransform(1, 0, 0, 1, 0, 0); c.globalAlpha = 1;
   };
 }
 function eyeGlow(c, x, y, col, s) { R(c, col, x, y, s, s); AB.glow(c, x + s / 2, y + s / 2, 9, col, 0.7); }
@@ -601,26 +612,44 @@ B.hellsovereign = {
   },
   draw: wrapDraw(function (e, c, cx, cy) {
     var o = bossBegin(e, c, cx, cy), ph = e.aux.phase, M = AB.malphas;
+    if (!M || !M.body) throw new Error('malphas sprite missing');
     var fire = ph === 1 ? '#ff3a1a' : (ph === 2 ? '#ff6a1a' : '#ffb02a');
-    var flash = (e.flash > 0 || e.hitF > 0) && M.flash;
+    var flash = (e.flash > 0 || e.hitF > 0) && M.fBody;
     R(c, 'rgba(0,0,0,0.4)', o.x - 36, o.y - 2, 72, 4);
-    var SH = 124, SW = Math.round(SH * M.w / M.h);
-    var mv = Math.abs(e.vx) > 0.2, bob = Math.sin(e.t * 0.07) * 1.5, sq = 0, lean = 0, rise = 0;
+    var SH = 124, k = SH / M.h, SW = Math.round(M.w * k);
+    var mv = Math.abs(e.vx) > 0.2, bob = Math.sin(e.t * 0.07) * 1.5, sq = 0, lean = 0, rise = 0, sa = Math.sin(e.t * 0.05) * 3;
     if (mv) bob += Math.abs(Math.sin(e.t * 0.2)) * -2;
-    if (e.state === 'cleave') lean = e.st < 34 ? -0.08 : 0.14;
-    else if (e.state === 'slam') { lean = e.st < 42 ? -0.12 : 0.1; sq = e.st >= 42 && e.st < 50 ? 0.08 : 0; }
-    else if (e.state === 'charge' && e.st > 30) lean = 0.16;
-    else if (e.state === 'leap' && e.st > 26 && !e.onGround) rise = -4;
-    else if (e.state === 'roar') lean = -0.06 + Math.sin(e.t * 0.9) * 0.02;
+    var st = e.st;
+    /* sword angle (degrees, clockwise, relative to its resting pose: tip down-and-back) */
+    if (e.state === 'cleave') {
+      var wd = ph === 3 ? 24 : 34, sec = st > wd + 14 && ph >= 2;
+      if (st < wd) { sa = 140 * (st / wd); lean = -0.08; }
+      else if (st < wd + 11) { sa = 140 + 100 * ((st - wd) / 11); lean = 0.14; }
+      else if (ph >= 2 && st < wd + 14) { sa = 240 - 100 * ((st - wd - 11) / 3); lean = -0.06; }
+      else if (sec) { sa = 140 + 100 * Math.min(1, (st - wd - 14) / 10); lean = 0.14; }
+      else { sa = 240; lean = 0.1; }
+    } else if (e.state === 'slam') {
+      var sw2 = ph === 3 ? 30 : 42;
+      if (st < sw2) { sa = 190 * (st / sw2); lean = -0.12; } else { sa = 190 + 120 * Math.min(1, (st - sw2) / 6); lean = 0.1; sq = st < sw2 + 8 ? 0.08 : 0; }
+    } else if (e.state === 'charge' && st > 30) { sa = 215; lean = 0.16; }
+    else if (e.state === 'leap') { sa = st < 26 ? 150 * (st / 26) : 150; if (st > 26 && !e.onGround) rise = -4; }
+    else if (e.state === 'beam') { sa = 200 + Math.sin(e.t * 0.3) * 8; }
+    else if (e.state === 'roar') { sa = 120 + Math.sin(e.t * 0.9) * 6; lean = -0.06 + Math.sin(e.t * 0.9) * 0.02; }
+    else if (e.state === 'fireball' || e.state === 'infernoRing' || e.state === 'meteors' || e.state === 'pillars' || e.state === 'summon') sa = 110 + Math.sin(e.t * 0.2) * 5;
     AB.glow(c, o.x, o.y - SH * 0.5, 70 + ph * 12, fire, 0.16 + ph * 0.07 + Math.sin(e.t * 0.2) * 0.05);
     c.translate(o.x, o.y + rise); c.scale(e.face, 1); c.rotate(lean);
-    if (M.img.complete && M.img.naturalWidth) {
-      c.imageSmoothingEnabled = false;
-      c.drawImage(flash ? M.flash : M.img, -SW / 2, -SH * (1 + sq) + bob, SW, SH * (1 + sq));
+    c.imageSmoothingEnabled = false;
+    var bx = -SW / 2, by = -SH * (1 + sq) + bob, dh = SH * (1 + sq);
+    if (M.body.complete && M.body.naturalWidth) {
+      c.drawImage(flash ? M.fBody : M.body, bx, by, SW, dh);
+      // sword: rotate about the grip
+      var gx = bx + M.px * k, gy = by + M.py * k * (1 + sq);
+      c.save(); c.translate(gx, gy); c.rotate(sa * Math.PI / 180); c.translate(-gx, -gy);
+      c.drawImage(flash ? M.fSword : M.sword, bx, by, SW, dh);
+      // fiery edge while swinging
+      if (e.state === 'cleave' && st >= (ph === 3 ? 24 : 34) && st < (ph === 3 ? 24 : 34) + 11) AB.glow(c, bx + 9 * k, by + 266 * k * (1 + sq), 40, fire, 0.7);
+      c.restore();
     } else R(c, '#5a1018', -22, -90, 44, 90);
-    // fire swell on the blade side while attacking
-    if (e.state === 'cleave' && e.st >= 34 && e.st < 46) { AB.glow(c, 46, -50, 52, fire, 0.7); }
-    if (e.state === 'slam' && e.st >= 42 && e.st < 52) AB.glow(c, 40, -6, 50, fire, 0.7);
     teleMark(c, e, 0, 0);
     c.restore(); c.setTransform(1, 0, 0, 1, 0, 0);
   })
