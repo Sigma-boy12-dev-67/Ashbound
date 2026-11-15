@@ -1,12 +1,12 @@
 /* Ashbound offline cache. Bump VERSION whenever any game file changes. */
-var VERSION = 'ashbound-v1.4.3';
+var VERSION = 'ashbound-v1.4.4';
 var FILES = ['./', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   'js/util.js', 'js/save.js', 'js/input.js', 'js/audio.js', 'js/sprites.js', 'js/gfx.js', 'js/data.js', 'js/level.js', 'js/render.js',
   'js/entities.js', 'js/playerdraw.js', 'js/warrior.js', 'js/enemies.js', 'js/stages.js', 'js/bosses.js', 'js/malphas.js', 'js/bosses2.js', 'js/world.js', 'js/worlddraw.js', 'js/carpotion.js', 'js/adminconfig.js', 'js/admin.js',
   'js/hud.js', 'js/modals.js', 'js/ui.js', 'js/game.js', 'js/main.js'];
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); }));
+  e.waitUntil(caches.open(VERSION).then(function (c) { return Promise.all(FILES.map(function (f) { return fetch(new Request(f, { cache: 'reload' })).then(function (r) { if (!r.ok) throw new Error(f); return c.put(f, r); }); })); }).then(function () { return self.skipWaiting(); }));
 });
 self.addEventListener('activate', function (e) {
   e.waitUntil(caches.keys().then(function (ks) {
