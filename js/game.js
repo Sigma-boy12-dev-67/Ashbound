@@ -2,7 +2,7 @@
 'use strict';
 var AB = window.AB;
 var S = AB.scenes;
-AB.VERSION = '1.4.2';
+AB.VERSION = '1.4.3';
 
 function Game(canvas) {
   this.cv = canvas; this.c = canvas.getContext('2d');
