@@ -1,6 +1,6 @@
 {
   "name": "ashbound",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "description": "Ashbound - a roguelite action-platformer",
   "private": true,
   "scripts": {
