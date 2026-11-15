@@ -48,8 +48,8 @@ Level.prototype.renderStatic = function () {
     c.fillRect(px, py + 8, T, 1); c.fillRect(px, py, T, 1);
     // chips
     if (h > 0.82) { c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(px + 3 + Math.floor(h * 20) % 8, py + 3, 3, 2); }
-    if (B.id === 'foundry' && h < 0.07) { c.fillStyle = B.accent; c.fillRect(px + 4, py + 5, 1, 5); c.fillRect(px + 5, py + 9, 3, 1); }
-    if (B.id === 'spire' && h > 0.9) { c.fillStyle = 'rgba(190,240,255,0.35)'; c.fillRect(px + 3, py + 3, 1, 6); c.fillRect(px + 4, py + 3, 3, 1); }
+    if ((B.id === 'foundry' || B.cracks) && h < (B.cracks ? 0.14 : 0.07)) { c.fillStyle = B.accent; c.fillRect(px + 4, py + 5, 1, 5); c.fillRect(px + 5, py + 9, 3, 1); }
+    if ((B.id === 'spire' || B.frost) && h > 0.9) { c.fillStyle = 'rgba(190,240,255,0.35)'; c.fillRect(px + 3, py + 3, 1, 6); c.fillRect(px + 4, py + 3, 3, 1); }
     // edges
     if (!up) {
       c.fillStyle = B.top; c.fillRect(px, py, T, 3);
@@ -57,7 +57,7 @@ Level.prototype.renderStatic = function () {
       c.fillStyle = shade(B.top, -0.35); c.fillRect(px, py + 3, T, 1);
       if (!lf) { c.fillStyle = shade(B.top, -0.2); c.fillRect(px, py, 1, 4); }
       if (!rt) { c.fillStyle = shade(B.top, -0.2); c.fillRect(px + T - 1, py, 1, 4); }
-      if (B.id === 'crypt' && h > 0.35) { // moss
+      if ((B.id === 'crypt' || B.mossy) && h > 0.35) { // moss
         c.fillStyle = B.moss; c.fillRect(px, py - 1, T, 2);
         c.fillStyle = shade(B.moss, 0.25); c.fillRect(px + 2, py - 2, 3, 1); c.fillRect(px + 9, py - 2, 4, 1);
         if (h > 0.7) { c.fillStyle = B.moss; c.fillRect(px + 6, py + 4, 2, 3); }
@@ -83,7 +83,7 @@ Level.prototype.renderStatic = function () {
         c.fillStyle = i < 2 ? shade(B.tile, -0.2) : shade(B.tile2, -0.15 - i * 0.01);
         c.fillRect(x * T + 8 - Math.floor(wd / 2), cl * T + i, wd, 1);
       }
-      if (B.id === 'spire') { c.fillStyle = 'rgba(190,240,255,0.5)'; c.fillRect(x * T + 7, cl * T + 1, 1, len - 3); }
+      if (B.id === 'spire' || B.frost) { c.fillStyle = 'rgba(190,240,255,0.5)'; c.fillRect(x * T + 7, cl * T + 1, 1, len - 3); }
     } else if (hh < 0.12) {
       var ch = 20 + Math.floor(hh * 200);
       for (var j = 0; j < ch; j += 3) {
@@ -140,9 +140,10 @@ Level.prototype.drawDynamic = function (ctx, cx, cy, t) {
     pr = this.pitRects[i];
     var x0 = pr.x * T - cx, y0 = (pr.y + 1) * T - cy, w = pr.w * T;
     if (x0 > AB.W || x0 + w < 0) continue;
-    var col = B.id === 'foundry' ? '#ff5a10' : (B.id === 'spire' ? '#6ae0ff' : '#8a6aff');
-    ctx.fillStyle = AB.rgba(col, B.id === 'foundry' ? 0.8 : 0.22);
-    if (B.id === 'foundry') {
+    var lava = B.id === 'foundry' || B.pitLava;
+    var col = B.pitCol || (B.id === 'foundry' ? '#ff5a10' : (B.id === 'spire' ? '#6ae0ff' : '#8a6aff'));
+    ctx.fillStyle = AB.rgba(col, lava ? 0.8 : 0.22);
+    if (lava) {
       ctx.fillRect(x0, y0 + 6, w, T - 4);
       for (var k = 0; k < w; k += 2) {
         var hgt = 3 + Math.sin(t * 0.08 + (k + pr.x * 16) * 0.35) * 2;
@@ -151,7 +152,7 @@ Level.prototype.drawDynamic = function (ctx, cx, cy, t) {
     } else {
       ctx.fillRect(x0, y0, w, T);
     }
-    AB.glow(ctx, x0 + w / 2, y0 + 6, w * 0.6 + 14, col, B.id === 'foundry' ? 0.5 : 0.22);
+    AB.glow(ctx, x0 + w / 2, y0 + 6, w * 0.6 + 14, col, lava ? 0.5 : 0.22);
   }
   var gl = [];
   for (i = 0; i < this.arenas.length; i++) gl = gl.concat(this.arenas[i].gates);
@@ -219,6 +220,40 @@ AB.getBackdrop = function (biome) {
               for (var q = 0; q < 4; q++) c.fillRect(shapeX + 6, Hd - h + 24 + q * 22, w - 12, 3);
             }
             if (i % 4 === 0) { c.fillStyle = color; c.fillRect(shapeX + w, Hd - 70, 80, 8); }
+          } else if (biome.style === 'mire') { // dead trees, hanging moss
+            w = 10 + (i * 29 % 16); h = 120 + (i * 67 % 240);
+            c.fillStyle = color; c.fillRect(shapeX, Hd - h, w, h);
+            c.beginPath(); c.arc(shapeX + w / 2, Hd - h, w * 1.9, 0, Math.PI * 2); c.fill();
+            c.fillStyle = AB.rgba(biome.accent, 0.16);
+            for (var q1 = 0; q1 < 4; q1++) c.fillRect(shapeX - 8 + q1 * 9, Hd - h + 6, 2, 28 + ((q1 * i * 7) % 44));
+          } else if (biome.style === 'ossuary') { // rib-vaulted bone columns
+            w = 30 + (i * 37 % 34); h = 170 + (i * 53 % 170);
+            c.fillStyle = color; c.fillRect(shapeX, Hd - h, w, h); c.fillRect(shapeX - 4, Hd - h - 6, w + 8, 8);
+            c.fillStyle = AB.rgba(biome.accent, 0.18);
+            for (var q2 = 0; q2 < h; q2 += 14) c.fillRect(shapeX + 3, Hd - h + q2, w - 6, 3);
+            if (i % 3 === 0) { c.fillStyle = AB.rgba(biome.fog, 0.3); c.beginPath(); c.arc(shapeX + w, Hd - h * 0.6, w * 0.9, Math.PI, 0); c.fill(); }
+          } else if (biome.style === 'crystal') { // gem clusters
+            for (var q3 = 0; q3 < 3; q3++) {
+              var cw = 10 + ((i + q3) * 13 % 14), ch = 60 + ((i * 31 + q3 * 47) % 220), bx = shapeX + q3 * cw * 0.7;
+              c.fillStyle = color; c.beginPath(); c.moveTo(bx, Hd); c.lineTo(bx + cw * 0.2, Hd - ch); c.lineTo(bx + cw, Hd); c.fill();
+              c.fillStyle = AB.rgba(biome.accent, 0.28); c.beginPath(); c.moveTo(bx + cw * 0.2, Hd - ch); c.lineTo(bx + cw, Hd); c.lineTo(bx + cw * 0.55, Hd); c.fill();
+            }
+          } else if (biome.style === 'storm') { // battlement towers with lit windows
+            w = 34 + (i * 41 % 40); h = 130 + (i * 61 % 200);
+            c.fillStyle = color; c.fillRect(shapeX, Hd - h, w, h);
+            for (var q4 = 0; q4 < w; q4 += 10) c.fillRect(shapeX + q4, Hd - h - 8, 6, 8);
+            c.fillStyle = AB.rgba(biome.torch, 0.5);
+            for (var q5 = 0; q5 < 4; q5++) if ((i + q5) % 2) c.fillRect(shapeX + 8 + (q5 % 2) * 12, Hd - h + 20 + q5 * 24, 4, 8);
+          } else if (biome.style === 'void') { // drifting shards of rock
+            w = 30 + (i * 29 % 60); y = 40 + (i * 67 % 280);
+            c.fillStyle = color; c.beginPath(); c.moveTo(shapeX, Hd - y - 20); c.lineTo(shapeX + w, Hd - y - 20);
+            c.lineTo(shapeX + w * 0.6, Hd - y + 16 + (i % 3) * 10); c.lineTo(shapeX + w * 0.3, Hd - y + 8); c.fill();
+            c.fillStyle = AB.rgba(biome.accent, 0.3); c.fillRect(shapeX, Hd - y - 20, w, 2);
+          } else if (biome.style === 'hell') { // jagged horns with lava veins
+            w = 24 + (i * 29 % 40); h = 150 + (i * 67 % 260);
+            c.fillStyle = color; c.beginPath(); c.moveTo(shapeX, Hd); c.lineTo(shapeX + w * 0.15, Hd - h * 0.6); c.lineTo(shapeX + w * 0.35, Hd - h);
+            c.lineTo(shapeX + w * 0.55, Hd - h * 0.55); c.lineTo(shapeX + w * 0.8, Hd - h * 0.85); c.lineTo(shapeX + w, Hd); c.fill();
+            if (glowCol) { c.fillStyle = AB.rgba(glowCol, 0.6); c.fillRect(shapeX + w * 0.3, Hd - h * 0.5, 2, h * 0.5); c.fillRect(shapeX + w * 0.6, Hd - h * 0.3, 2, h * 0.3); }
           } else {
             w = 14 + (i * 29 % 26); h = 140 + (i * 67 % 260);
             c.fillStyle = color; c.beginPath();
@@ -236,8 +271,8 @@ AB.getBackdrop = function (biome) {
     layers.push({ cv: cv, fx: fx, fy: fy, y: yBase });
   }
   layer(AB.mix(biome.bg2, biome.fog, 0.35), 0.12, 0.10, 40, 14, null);
-  layer(AB.mix(biome.bg1, biome.fog, 0.25), 0.26, 0.20, 70, 11, biome.id === 'foundry' ? biome.accent : null);
-  layer(AB.mix(biome.bg1, '#000000', 0.35), 0.45, 0.32, 100, 9, biome.id === 'foundry' ? biome.torch : null);
+  layer(AB.mix(biome.bg1, biome.fog, 0.25), 0.26, 0.20, 70, 11, (biome.id === 'foundry' || biome.glowLayers) ? biome.accent : null);
+  layer(AB.mix(biome.bg1, '#000000', 0.35), 0.45, 0.32, 100, 9, (biome.id === 'foundry' || biome.glowLayers) ? biome.torch : null);
   backdropCache[biome.id] = { layers: layers };
   return backdropCache[biome.id];
 };
