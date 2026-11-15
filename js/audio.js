@@ -109,6 +109,7 @@ var TRACKS = {
   spire:   { bpm: 100, root: 45, scale: [0, 2, 3, 5, 7, 9, 10], prog: [0, 3, 5, 4] },
   boss:    { bpm: 138, root: 40, scale: [0, 1, 3, 5, 6, 8, 10], prog: [0, 1, 0, 6] }
 };
+AB.addTrack = function (name, def) { TRACKS[name] = def; };
 var M = { want: null, cur: null, track: null, step: 0, bar: 0, next: 0, timer: null, intensity: 0, walk: 3 };
 function mtof(m) { return 440 * Math.pow(2, (m - 69) / 12); }
 function degNote(tr, deg, oct) {
