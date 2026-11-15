@@ -1,5 +1,5 @@
 /* Ashbound offline cache. Bump VERSION whenever any game file changes. */
-var VERSION = 'ashbound-v1.4.2';
+var VERSION = 'ashbound-v1.4.3';
 var FILES = ['./', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   'js/util.js', 'js/save.js', 'js/input.js', 'js/audio.js', 'js/sprites.js', 'js/gfx.js', 'js/data.js', 'js/level.js', 'js/render.js',
