@@ -49,6 +49,7 @@ function close() {
   if (AB.input && AB.input.clearAll) AB.input.clearAll();
 }
 function show(view) {
+  if (AB.online && AB.online.S && AB.online.S.world) return;   // no cheating in co-op
   injectCss(); if (root && root.parentNode) root.parentNode.removeChild(root);
   root = el('div', { id: 'ab-admin' }); var box = el('div', { className: 'box' }); root.appendChild(box);
   msgEl = el('div', { className: 'msg' });
