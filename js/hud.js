@@ -35,10 +35,21 @@ AB.drawHUD = function (c, w, game) {
   }
   c.globalAlpha = 1;
   if (p.drinkT > 0) AB.bar(c, 10, 38, 70, 2, 32 - p.drinkT, 32, '#7affb0');
-  AB.drawIcon(c, 'coin', 10, 40, 0.7, '#ffd24a'); AB.text(c, run.gold, 24, 43, '#ffe08a', 1, 'l', true);
+  if (!w.online) { AB.drawIcon(c, 'coin', 10, 40, 0.7, '#ffd24a'); AB.text(c, run.gold, 24, 43, '#ffe08a', 1, 'l', true); }
   AB.drawIcon(c, 'ember', 70, 40, 0.7, '#ff9040'); AB.text(c, run.embers, 84, 43, '#ffb070', 1, 'l', true);
   AB.text(c, AB.fmtTime(run.time), 10, 54, '#8a8096', 1, 'l', true);
   AB.text(c, 'STAGE ' + (w.stage + 1) + '/' + AB.BIOMES.length, 126, 54, '#8a8096', 1, 'r', true);
+
+  /* ---- party (co-op) ---- */
+  if (w.online) {
+    var pl = w.online.partyList(), py = 68;
+    AB.text(c, 'ROOM ' + w.online.code, 10, py, '#9ae8ff', 1, 'l', true); py += 11;
+    for (i = 0; i < pl.length; i++) {
+      AB.text(c, pl[i].name, 10, py, pl[i].dead ? '#8a8096' : '#d8cfc0', 1, 'l', true);
+      AB.bar(c, 70, py + 1, 58, 5, pl[i].dead ? 0 : Math.max(0, pl[i].hp), pl[i].max, pl[i].dead ? '#555' : '#6ad86a'); py += 10;
+    }
+    if (p.dead) AB.text(c, 'SPECTATING - your party fights on', AB.W / 2, 40, '#ff8a8a', 1, 'c', true);
+  }
 
   /* ---- weapon & skill slots ---- */
   var bx = Math.round(AB.W / 2 - 62), by = AB.H - 36;
