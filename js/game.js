@@ -2,7 +2,7 @@
 'use strict';
 var AB = window.AB;
 var S = AB.scenes;
-AB.VERSION = '1.4.4';
+AB.VERSION = '1.5.0';
 
 function Game(canvas) {
   this.cv = canvas; this.c = canvas.getContext('2d');
@@ -50,25 +50,54 @@ Game.prototype.render = function () {
   if (this.fade > 0) { c.globalAlpha = this.fade; c.fillStyle = '#06030a'; c.fillRect(0, 0, AB.W, AB.H); c.globalAlpha = 1; }
 };
 Game.prototype.autoPause = function () {
-  if (this.name === 'play' && S.play.pauseMenu === null && this.world && !this.world.modal && !this.world.player.dead) S.play.openPause();
+  if (this.name === 'play' && S.play.pauseMenu === null && this.world && !this.world.online && !this.world.modal && !this.world.player.dead) S.play.openPause();
 };
 
 /* ---------- runs ---------- */
-Game.prototype.startRun = function (lo) {
+Game.prototype.makeRun = function (lo) {
   var sv = AB.save.data, L = AB.save.level, s = AB.newStats();
   s.maxHp += 12 * L('vit'); s.dmg += 0.05 * L('might'); s.spd += 0.04 * L('nimble');
   s.emberMul += 0.1 * L('lore'); s.revive += L('ash');
   s.flasks = Math.max(1, 2 + L('flask') - (sv.asc >= 3 ? 1 : 0));
   var tier = L('temper');
-  this.run = {
+  var run = {
     seed: Math.floor(Math.random() * 1e9), stats: s, hp: s.maxHp,
     weapons: [AB.makeWeapon(lo.w0, tier), AB.makeWeapon(lo.w1, tier)], skills: [lo.sk, null],
     flasks: s.flasks, gold: 60 * L('fortune'), embers: 0, kills: 0, time: 0, damageTaken: 0, bossKills: 0,
     boonIds: {}, freeOffer: true, turretLife: 480, carPotions: 0, carFound: false
   };
+  return run;
+};
+Game.prototype.startRun = function (lo) {
+  this.run = this.makeRun(lo);
   /* tester shortcut: open the game with ?car in the URL to start every run holding one Car Potion */
   try { if (/[?&]car(=|&|$)/.test(location.search)) { this.run.carPotions = 1; this.run.carFound = true; } } catch (e) { /* ignore */ }
   this.go('play', { fresh: true });
+};
+/* signed-in players: pick a saved descent back up at the start of the stage they reached */
+Game.prototype.resumeRun = function (cp) {
+  this.run = AB.cloud.unpackRun(cp);
+  this.go('play', { fresh: true, stage: Math.min(cp.stage || 0, AB.BIOMES.length - 1) });
+};
+/* co-op: every player builds their own run from the lobby choices; the room's seed/stage are shared */
+Game.prototype.startOnline = function (sess) {
+  var st = sess.setup || {}, run;
+  if (st.resume && st.resumeCp) run = AB.cloud.unpackRun(st.resumeCp); else run = this.makeRun({ w0: st.w0, w1: st.w1, sk: st.sk });
+  run.seed = sess.meta.seed; run.freeOffer = false; run.gold = 0;
+  this.run = run;
+  this.go('play', { fresh: true, stage: sess.meta.stage || 0, online: sess });
+};
+/* co-op: the whole party moves to the next stage together (the host decides when) */
+Game.prototype.onlineStage = function (n) {
+  var self = this, w = this.world, r = this.run, sess = w && w.online;
+  if (!sess || this.pending) return;
+  if (w) w.portalDone = true;
+  r.hp = Math.max(Math.round(r.stats.maxHp * 0.35), Math.min(r.stats.maxHp, Math.round(w.player.hp + r.stats.maxHp * 0.3)));
+  r.flasks = Math.min(r.stats.flasks, r.flasks + 1);
+  this.later(function () {
+    self.world = new AB.World(self, r, n, sess);
+    AB.audio.musicPlay(AB.BIOMES[n].music); AB.audio.setIntensity(0.2);
+  });
 };
 Game.prototype.stageComplete = function () {
   var self = this, w = this.world, r = this.run;
@@ -84,13 +113,22 @@ Game.prototype.stageComplete = function () {
 Game.prototype.finishRun = function (win, abandoned) {
   var r = this.run, w = this.world, sv = AB.save.data, st = sv.stats;
   if (!r) { this.go('title'); return; }
+  var sess = w && w.online, mode = sess ? 'coop' : 'solo';
+  if (AB.net.canSave() && w) {
+    /* signed in: every descent is recorded. One that is left unfinished is also saved so it can be resumed. */
+    var reached = win ? AB.BIOMES.length : w.stage + 1, result = win ? 'victory' : (abandoned ? 'incomplete' : 'died');
+    AB.cloud.record({ mode: mode, stage: reached, of: AB.BIOMES.length, result: result, kills: r.kills, time: r.time, bossKills: r.bossKills, party: sess ? sess.count() : 1 });
+    if (result === 'incomplete') AB.cloud.saveCheckpoint(AB.cloud.packRun(r, w.stage, w.player.hp > 0 ? w.player.hp : r.stats.maxHp * 0.5, mode));
+    else AB.cloud.clearCheckpoint();
+  }
+  if (sess) sess.leave();
   var cleared = win ? AB.BIOMES.length : w.stage;
   var earned = r.embers + cleared * 10 + (win ? 150 * (1 + sv.asc) : 0);
   sv.embers += earned; st.runs++; st.totalTime += r.time;
   st.bestStage = Math.max(st.bestStage, win ? AB.BIOMES.length : w.stage + 1);
   if (win) { st.wins++; if (!st.bestTime || r.time < st.bestTime) st.bestTime = r.time; } else st.deaths++;
   AB.save.write();
-  var res = { win: win, time: r.time, kills: r.kills, bossKills: r.bossKills, gold: r.gold, damage: r.damageTaken, earned: earned,
+  var res = { online: !!sess, win: win, time: r.time, kills: r.kills, bossKills: r.bossKills, gold: r.gold, damage: r.damageTaken, earned: earned,
     where: win ? 'You conquered Hell' : abandoned ? 'You abandoned the descent' : 'Fallen in ' + AB.BIOMES[Math.min(AB.BIOMES.length - 1, w.stage)].name };
   this.world = null; this.run = null;
   this.pending = null; this.fadeDir = 1; this.pending = { name: 'results', arg: res };
@@ -102,8 +140,9 @@ S.play = {
   enter: function (game, arg) {
     this.game = game; this.pauseMenu = null;
     if (arg && arg.fresh) {
-      game.world = new AB.World(game, game.run, 0);
-      AB.audio.musicPlay(AB.BIOMES[0].music); AB.audio.setIntensity(0.2);
+      var st0 = (arg.stage || 0);
+      game.world = new AB.World(game, game.run, st0, arg.online || null);
+      AB.audio.musicPlay(AB.BIOMES[st0].music); AB.audio.setIntensity(0.2);
     }
   },
   resume: function () { this.pauseMenu = null; },
@@ -113,7 +152,7 @@ S.play = {
     this.pauseMenu = new AB.Menu([
       { label: 'RESUME', act: function () { self.pauseMenu = null; AB.sfx('click'); } },
       { label: 'OPTIONS', act: function () { g.setScene('options', { from: 'pause' }); } },
-      { label: 'ABANDON RUN', act: function () { g.finishRun(false, true); } }
+      { label: g.world && g.world.online ? 'LEAVE PARTY' : 'ABANDON RUN', act: function () { g.finishRun(false, true); } }
     ]);
   },
   update: function (I) {
@@ -121,9 +160,11 @@ S.play = {
     if (!w) return;
     if (this.pauseMenu) {
       if (I.pressed('pause') || I.pressed('back')) { this.pauseMenu = null; AB.sfx('click'); return; }
-      this.pauseMenu.update(I); return;
+      this.pauseMenu.update(I);
+      if (w.online) w.update(AB.input.blank);   // co-op never freezes
+      return;
     }
-    if (w.modal) { AB.Modal.update(w, I); return; }
+    if (w.modal) { AB.Modal.update(w, I); if (!w.online) return; I = AB.input.blank; }
     if (I.pressed('pause') && !w.player.dead) { this.openPause(); return; }
     w.update(I);
     if (w.over && w.player.dead && w.overT > 170) g.finishRun(false);
