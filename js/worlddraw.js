@@ -260,6 +260,7 @@ World.prototype.draw = function (c) {
   this.drawPickups(c, cx, cy, t);
   for (i = 0; i < this.allies.length; i++) this.allies[i].draw(c, cx, cy, t);
   for (i = 0; i < this.enemies.length; i++) AB.drawEnemy(this.enemies[i], c, cx, cy, t);
+  if (this.online) this.drawGhosts(c, cx, cy, t);
   AB.drawPlayer(c, this.player, cx, cy, t);
   this.drawCar(c, cx, cy, t);
   this.drawFx(c, cx, cy, t);
