@@ -3,13 +3,15 @@
 var AB = window.AB;
 var T = AB.T, TILE = AB.TILE;
 
-function World(game, run, stageIdx) {
+function World(game, run, stageIdx, online) {
   this.game = game; this.run = run; this.stage = stageIdx;
+  this.online = online || null; this.enemyId = 0; this.projId = 0;
   this.biome = AB.BIOMES[stageIdx];
   this.level = new AB.Level(stageIdx, stageIdx, run.seed + stageIdx * 7919);
   this.level.renderStatic();
   var L = this.level;
   this.player = new AB.Player(run, L.start.x, L.start.y);
+  if (this.online) this.online.attach(this);
   this.enemies = []; this.projs = []; this.particles = []; this.pickups = []; this.texts = [];
   this.props = []; this.inter = []; this.allies = []; this.bolts = []; this.rings = [];
   this.t = 0; this.freeze = 0; this.trauma = 0; this.flashA = 0; this.flashC = '#fff';
@@ -25,20 +27,24 @@ function World(game, run, stageIdx) {
   this.cam.x = AB.clamp(p.x - AB.W / 2, 0, L.W * T - AB.W);
   this.cam.y = AB.clamp(p.y - AB.H * 0.62, 0, L.H * T - AB.H);
   this.banner = { title: this.biome.name, sub: this.biome.sub, t: 0, max: 170 };
+  if (AB.cloud && AB.cloud.worldStart) AB.cloud.worldStart(this);
 }
 AB.World = World;
 
 World.prototype.setup = function () {
   var L = this.level, i, o;
-  for (i = 0; i < L.spawns.length; i++) {
+  var onl = this.online, isClient = onl && onl.role === 'client';
+  for (i = 0; i < L.spawns.length && !isClient; i++) {   // online clients receive enemies from the host
     o = L.spawns[i];
     AB.spawnEnemy(this, o.type, o.x, o.y, { elite: o.elite, patrol: true });
   }
   for (i = 0; i < L.props.length; i++) { o = L.props[i]; this.props.push({ x: o.x - 6, y: o.y - 14, w: 12, h: 14, kind: o.kind, hp: 1, flash: 0 }); }
-  for (i = 0; i < L.golds.length; i++) { o = L.golds[i]; for (var k = 0; k < 3; k++) this.pickups.push(this.mkPickup('gold', o.x + (k - 1) * 8, o.y, 4 + this.stage * 2, { still: true })); }
+  for (i = 0; i < L.golds.length && !onl; i++) {   // no coins online
+   o = L.golds[i]; for (var k = 0; k < 3; k++) this.pickups.push(this.mkPickup('gold', o.x + (k - 1) * 8, o.y, 4 + this.stage * 2, { still: true })); }
   for (i = 0; i < L.chests.length; i++) { o = L.chests[i]; this.inter.push({ kind: 'chest', x: o.x - 10, y: o.y - 16, w: 20, h: 16, used: false, anim: 0, tier: 0 }); }
   for (i = 0; i < L.npcs.length; i++) {
     o = L.npcs[i];
+    if (onl && (o.kind === 'shop' || o.kind === 'smith')) continue;   // shops need gold
     var it = { kind: o.kind, x: o.x - 14, y: o.y - 32, w: 28, h: 32, used: false, anim: 0 };
     if (o.kind === 'shop') it.stock = this.makeStock();
     if (o.kind === 'altar') it.offers = this.makeOffers();
@@ -94,7 +100,8 @@ World.prototype.makeStock = function () {
 
 /* ---------- helpers ---------- */
 World.prototype.shake = function (a) { this.trauma = Math.min(1, this.trauma + a * 0.055 * AB.save.data.opt.shake); };
-World.prototype.hitstop = function (n) { this.freeze = Math.max(this.freeze, n); };
+World.prototype.hitstop = function (n) { if (this.online) return;
+  this.freeze = Math.max(this.freeze, n); };
 World.prototype.flashScreen = function (c, a) { if (AB.save.data.opt.flash) { this.flashC = c; this.flashA = Math.max(this.flashA, a); } };
 World.prototype.text = function (x, y, str, color, big) {
   if (!AB.save.data.opt.dmgnum && !big) return;
@@ -116,7 +123,20 @@ World.prototype.burst = function (x, y, color, n, o) {
 };
 World.prototype.dust = function (x, y, n) { this.burst(x, y, '#9a96a8', n, { vx: 1.1, vy: 0.5, g: -0.01, life: 16, size: 2, fric: 0.9 }); };
 World.prototype.ring = function (x, y, r, color) { this.rings.push({ x: x, y: y, r: r, t: 0, max: 16, color: color }); };
-World.prototype.spawnProj = function (o) { var p = new AB.Proj(o); this.projs.push(p); return p; };
+World.prototype.spawnProj = function (o) {
+  var p = new AB.Proj(o); p.id = ++this.projId; this.projs.push(p);
+  if (this.online && o.team === 'p' && !o.ghost) this.online.shareProj(this, o);
+  return p;
+};
+
+/* ---------- multiplayer helpers (single player: just the one player) ---------- */
+World.prototype.allPlayers = function () { return this.online ? this.online.playersOf(this) : [this.player]; };
+World.prototype.alivePlayers = function () { var a = this.allPlayers(), o = []; for (var i = 0; i < a.length; i++) if (!a[i].dead) o.push(a[i]); return o; };
+World.prototype.nearestPlayer = function (x, y) {
+  var a = this.allPlayers(), best = this.player, bd = 1e9;
+  for (var i = 0; i < a.length; i++) { if (a[i].dead) continue; var d = Math.abs(a[i].x - x) + Math.abs(a[i].y - y) * 1.4; if (d < bd) { bd = d; best = a[i]; } }
+  return best;
+};
 World.prototype.enemiesNear = function (x, y, r, cb) {
   for (var i = 0; i < this.enemies.length; i++) {
     var e = this.enemies[i]; if (e.dead || e.spawnT > 0) continue;
@@ -145,9 +165,14 @@ World.prototype.explode = function (x, y, r, dmg, team, o) {
     }
     this.hitProps({ x: x - r / 2, y: y - r / 2, w: r, h: r });
   } else if (team === 'e' && !this.car) { // no enemy blast can hurt you while the car is rampaging
-    var p = this.player;
-    if (!p.dead && AB.dist(x, y, p.x + 5, p.y + 11) < r + 6) this.hurtPlayer(dmg, x, { explosion: true });
+    var ps = this.allPlayers(), keep = this.player;
+    for (var pi = 0; pi < ps.length; pi++) {
+      var p = ps[pi];
+      if (!p.dead && AB.dist(x, y, p.x + 5, p.y + 11) < r + 6) { this.player = p; this.hurtPlayer(dmg, x, { explosion: true }); }
+    }
+    this.player = keep;
   }
+  if (this.online && this.online.capturing && team === 'e') this.online.emit({ k: 'x', x: Math.round(x), y: Math.round(y), r: Math.round(r), c: o.color || 0 });
 };
 
 /* ---------- player offense ---------- */
@@ -219,6 +244,7 @@ World.prototype.chain = function (from, dmg, n) {
 World.prototype.damageEnemy = function (e, dmg, o) {
   if (e.dead || e.spawnT > 0 || e.invuln > 0) return false;
   o = o || {};
+  if (this.online && this.online.role === 'client' && !o.remote) return this.online.reportHit(this, e, dmg, o);
   if (e.def.mitigate) { dmg = e.def.mitigate(e, dmg, o, this); if (dmg <= 0) return false; }
   if (e.armor) dmg *= (1 - e.armor);
   dmg = Math.max(1, Math.round(dmg));
@@ -229,6 +255,7 @@ World.prototype.damageEnemy = function (e, dmg, o) {
   if (o.ignite) e.burn = 180;
   if (o.freeze) { if (e.boss) e.slow = 120; else e.freezeT = Math.max(e.freezeT || 0, 100); }
   var col = o.crit ? '#ffe84a' : (o.src === 'dot' ? '#ff9a4a' : '#ffffff');
+  if (o.remote) { if (e.boss) e.hitF = 6; if (e.hp <= 0) this.killEnemy(e, o); return true; }   // a teammate's hit: they already saw their own feedback
   if (o.src !== 'dot' || (this.t % 30 === 0)) this.text(e.x + e.w / 2, e.y - 2, dmg, col, o.crit);
   this.burst(e.x + e.w / 2, e.y + e.h / 2, e.blood || '#b02a3a', o.crit ? 8 : 4, { vx: 2, vy: 2, life: 18, size: 2, dx: dir * 0.8 });
   if (o.src !== 'dot') {
@@ -246,6 +273,13 @@ World.prototype.damageEnemy = function (e, dmg, o) {
 World.prototype.killEnemy = function (e, o) {
   if (e.dead) return;
   e.dead = true; e.hp = 0;
+  if (e.def.onDeath) e.def.onDeath(e, this);
+  if (e.elite === 'volatile') this.explode(e.x + e.w / 2, e.y + e.h / 2, 44, 18 * this.biome.dmgMul, 'e', { color: '#ff5a3a' });
+  if (this.online) this.online.emit({ k: 'death', id: e.id, x: Math.round(e.x), y: Math.round(e.y), w: e.w, h: e.h, b: e.boss ? 1 : 0, el: e.elite || 0, g: e.gold || 3, bl: e.blood });
+  this.personalKill(e, o);
+};
+/* the part of a kill that belongs to each player: kill count, healing, loot, effects */
+World.prototype.personalKill = function (e, o) {
   var p = this.player, r = this.run, s = p.s;
   r.kills++; AB.save.data.stats.kills++;
   this.killCombo++; this.comboT = 150;
@@ -255,8 +289,6 @@ World.prototype.killEnemy = function (e, o) {
   this.burst(cx, cy, '#fff', 6, { vx: 3, vy: 3, life: 10, size: 1, g: 0 });
   this.ring(cx, cy, 20, '#fff');
   if (!e.boss && !(o && o.car)) { AB.sfx('die'); this.hitstop(4); this.shake(2); }
-  if (e.def.onDeath) e.def.onDeath(e, this);
-  if (e.elite === 'volatile') this.explode(cx, cy, 44, 18 * this.biome.dmgMul, 'e', { color: '#ff5a3a' });
   if (o && o.car && !e.boss) this.carLoot(e); else this.dropLoot(e);
 };
 
@@ -269,7 +301,7 @@ World.prototype.dropLoot = function (e) {
   var gv = Math.max(1, Math.round((e.gold || 3) * s.goldMul * (e.elite ? 2.2 : 1)));
   n = Math.min(e.boss ? 24 : 5, Math.max(1, Math.ceil(gv / 4)));
   var per = Math.max(1, Math.round(gv / n));
-  for (i = 0; i < n; i++) this.pickups.push(this.mkPickup('gold', cx, cy, per, { vx: AB.rand(-2, 2), vy: AB.rand(-4, -1.5) }));
+  for (i = 0; i < n && !this.online; i++) this.pickups.push(this.mkPickup('gold', cx, cy, per, { vx: AB.rand(-2, 2), vy: AB.rand(-4, -1.5) }));
   var em = e.boss ? 25 + this.stage * 10 : (e.elite ? 3 : (Math.random() < 0.45 ? 1 : 0));
   em = Math.round(em * s.emberMul);
   for (i = 0; i < em; i++) this.pickups.push(this.mkPickup('ember', cx, cy, 1, { vx: AB.rand(-2.5, 2.5), vy: AB.rand(-4.5, -1.5) }));
@@ -289,7 +321,7 @@ World.prototype.hitProps = function (box) {
       pr.hp = 0; AB.sfx('hit');
       this.burst(pr.x + 6, pr.y + 7, pr.kind === 'urn' ? '#8a5a4a' : '#8a6a3a', 10, { vx: 2, vy: 2, life: 26, size: 2, g: 0.15 });
       var n = AB.randi(1, 3);
-      for (var k = 0; k < n; k++) this.pickups.push(this.mkPickup('gold', pr.x + 6, pr.y + 4, 3 + this.stage * 2, { vx: AB.rand(-1.5, 1.5), vy: AB.rand(-3, -1) }));
+      for (var k = 0; k < n && !this.online; k++) this.pickups.push(this.mkPickup('gold', pr.x + 6, pr.y + 4, 3 + this.stage * 2, { vx: AB.rand(-1.5, 1.5), vy: AB.rand(-3, -1) }));
       if (Math.random() < 0.06) this.pickups.push(this.mkPickup('heart', pr.x + 6, pr.y + 4, 20, { vy: -2.5 }));
     }
   }
@@ -299,6 +331,7 @@ World.prototype.hitProps = function (box) {
 // returns 'hit' | 'ignored' | 'parried' | 'blocked'
 World.prototype.hurtPlayer = function (dmg, srcX, o) {
   var p = this.player, s = p.s; o = o || {};
+  if (p.remote) return this.online.hurtRemote(this, p, dmg, srcX, o);
   if (p.dead || p.iframes > 0 || this.over) return 'ignored';
   if (AB.cheat && AB.cheat.god) return 'ignored';
   if (p.noHurtT > 0 && !o.spike) return 'ignored';
@@ -358,8 +391,9 @@ World.prototype.killPlayer = function () {
     return;
   }
   p.dead = true; p.deadT = 0; p.hp = 0; p.vy = -4;
-  AB.sfx('die'); this.slowmo = 90; this.shake(9);
-  this.over = true; this.overT = 0;
+  AB.sfx('die'); this.shake(9);
+  if (this.online) { this.online.onLocalDeath(this); return; }   // spectate until the party is wiped or reaches the next stage
+  this.slowmo = 90; this.over = true; this.overT = 0;
 };
 
 /* ---------- interaction ---------- */
@@ -389,7 +423,7 @@ World.prototype.activate = function (it) {
       it.used = true; AB.sfx('chest'); this.shake(2);
       this.burst(it.x + 10, it.y + 4, '#ffd24a', 18, { vx: 2.5, vy: 3, life: 30, size: 2, glow: true });
       var cx = it.x + 10, cy = it.y, r = Math.random();
-      for (i = 0; i < AB.randi(7, 12); i++) this.pickups.push(this.mkPickup('gold', cx, cy, 5 + this.stage * 3, { vx: AB.rand(-2.5, 2.5), vy: AB.rand(-5, -2) }));
+      for (i = 0; i < AB.randi(7, 12) && !this.online; i++) this.pickups.push(this.mkPickup('gold', cx, cy, 5 + this.stage * 3, { vx: AB.rand(-2.5, 2.5), vy: AB.rand(-5, -2) }));
       if (r < 0.62) this.pickups.push(this.mkPickup('weapon', cx, cy - 6, 1, { vy: -4, weapon: this.randomWeapon(it.big ? 1 : 0) }));
       else if (r < 0.85) {
         var sk = this.randomSkill();
@@ -416,6 +450,7 @@ World.prototype.activate = function (it) {
       this.toast('The Ashen Well restores you.', 'drop', '#7affb0'); break;
     case 'portal':
       if (this.over) return;
+      if (this.online) { this.online.requestPortal(this); return; }
       AB.sfx('portal'); this.over = true; this.overT = 0; this.portalDone = true; this.game.stageComplete(); break;
     case 'pick':
       this.openSwap(it.pk); break;
@@ -437,19 +472,60 @@ World.prototype.openSwap = function (pk) {
 World.prototype.removePickup = function (pk) { var i = this.pickups.indexOf(pk); if (i >= 0) this.pickups.splice(i, 1); };
 
 /* ---------- arenas & boss ---------- */
+/* The state changes are separate functions so an online client can replay what the host decided. */
+World.prototype.arenaOpen = function (i) {
+  var L = this.level, a = L.arenas[i];
+  a.state = 1; L.setGates(a.gates, true); AB.sfx('door'); this.shake(3);
+  this.banner = { title: 'AMBUSH', sub: 'Defeat all foes to proceed', t: 0, max: 100, small: true };
+  AB.audio.setIntensity(1);
+};
+World.prototype.arenaClear = function (i) {
+  var L = this.level, a = L.arenas[i];
+  a.state = 2; L.setGates(a.gates, false); AB.sfx('door'); AB.sfx('chest'); this.shake(3);
+  this.toast('Arena cleared!', 'skull', '#ffd24a'); AB.audio.setIntensity(0.2);
+  var mx = (a.x0 + a.x1) / 2;
+  this.inter.push({ kind: 'chest', x: mx - 10, y: a.y - 16, w: 20, h: 16, used: false, anim: 0, big: true });
+  this.burst(mx, a.y - 10, '#ffd24a', 24, { vx: 3, vy: 3, life: 30, size: 2, glow: true });
+  this.pickups.push(this.mkPickup('heart', mx - 24, a.y - 20, 30, { vy: -3 }));
+};
+World.prototype.bossBegin = function () {
+  var b = this.level.boss, L = this.level;
+  b.state = 1; L.setGates(b.gates, true); AB.sfx('door'); AB.sfx('boss'); this.shake(7);
+  var bd = AB.BOSSES[b.type];
+  if (!(this.online && this.online.role === 'client')) this.bossRef = AB.spawnEnemy(this, b.type, (b.x0 + b.x1) / 2 + 120, b.y - 100, { boss: true, spawnFx: true });
+  this.banner = { title: bd.title, sub: bd.sub, t: 0, max: 200, boss: true };
+  AB.audio.musicPlay(this.biome.bossMusic || 'boss'); AB.audio.setIntensity(0.9);
+  this.bossArena = b;
+};
+World.prototype.bossEnd = function () {
+  var b = this.level.boss, L = this.level, i;
+  b.state = 2; L.setGates(b.gates, false);
+  if (!this.online) this.slowmo = 100;
+  this.flashScreen('#ffffff', 0.7); this.shake(10); AB.sfx('explode');
+  var pr = null;
+  for (i = 0; i < this.inter.length; i++) if (this.inter[i].kind === 'portal') pr = this.inter[i];
+  if (pr) { pr.hidden = false; this.ring(pr.x + 16, pr.y + 22, 100, '#b08aff'); AB.sfx('portal'); }
+  this.exitOpen = true; this.run.bossKills++; AB.save.data.stats.bossKills++;
+  this.toast('Guardian defeated! The way onward is open.', 'skull', '#ffd24a');
+  AB.audio.musicPlay(this.biome.music); AB.audio.setIntensity(0.2);
+  for (i = 0; i < 3; i++) this.pickups.push(this.mkPickup('heart', (b.x0 + b.x1) / 2 + (i - 1) * 30, b.y - 50, 40, { vy: -4 }));
+  // guaranteed rare reward
+  var wp = this.randomWeapon(1);
+  this.pickups.push(this.mkPickup('weapon', (b.x0 + b.x1) / 2, b.y - 60, 1, { vy: -4, weapon: AB.makeWeapon(wp.id, AB.clamp(this.stage + 1, 0, 4), AB.AFFIXES[Math.floor(Math.random() * AB.AFFIXES.length)].id) }));
+};
 World.prototype.updateArenas = function () {
-  var L = this.level, p = this.player, i, a;
+  if (this.online && this.online.role === 'client') return;   // the host decides; clients replay it from snapshots
+  var L = this.level, ps = this.alivePlayers(), i, a, k, pi;
   for (i = 0; i < L.arenas.length; i++) {
     a = L.arenas[i];
     if (a.state === 0) {
-      if (p.x > a.x0 + 5 * T && p.x < a.x1 - 5 * T && Math.abs(p.y - a.y) < 60 && !p.dead) {
-        a.state = 1; a.wave = 0; a.wait = 30; L.setGates(a.gates, true); AB.sfx('door'); this.shake(3);
-        this.banner = { title: 'AMBUSH', sub: 'Defeat all foes to proceed', t: 0, max: 100, small: true };
-        AB.audio.setIntensity(1);
+      for (pi = 0; pi < ps.length; pi++) {
+        var p = ps[pi];
+        if (p.x > a.x0 + 5 * T && p.x < a.x1 - 5 * T && Math.abs(p.y - a.y) < 60) { a.wave = 0; a.wait = 30; this.arenaOpen(i); break; }
       }
     } else if (a.state === 1) {
       var alive = 0;
-      for (var k = 0; k < this.enemies.length; k++) if (this.enemies[k].arena === i && !this.enemies[k].dead) alive++;
+      for (k = 0; k < this.enemies.length; k++) if (this.enemies[k].arena === i && !this.enemies[k].dead) alive++;
       if (alive === 0) {
         if (a.wait > 0) { a.wait--; continue; }
         if (a.wave < a.waves) {
@@ -461,50 +537,32 @@ World.prototype.updateArenas = function () {
           }
           a.wave++; a.wait = 40;
           this.toast('Wave ' + a.wave + ' / ' + a.waves, 'skull', '#ff8a6a');
-        } else {
-          a.state = 2; L.setGates(a.gates, false); AB.sfx('door'); AB.sfx('chest'); this.shake(3);
-          this.toast('Arena cleared!', 'skull', '#ffd24a'); AB.audio.setIntensity(0.2);
-          var mx = (a.x0 + a.x1) / 2;
-          this.inter.push({ kind: 'chest', x: mx - 10, y: a.y - 16, w: 20, h: 16, used: false, anim: 0, big: true });
-          this.burst(mx, a.y - 10, '#ffd24a', 24, { vx: 3, vy: 3, life: 30, size: 2, glow: true });
-          this.pickups.push(this.mkPickup('heart', mx - 24, a.y - 20, 30, { vy: -3 }));
-        }
+        } else this.arenaClear(i);
       }
     }
   }
   var b = L.boss;
-  if (b && b.state === 0 && !p.dead && p.x > b.x0 + 9 * T) {
-    b.state = 1; L.setGates(b.gates, true); AB.sfx('door'); AB.sfx('boss'); this.shake(7);
-    var bd = AB.BOSSES[b.type];
-    this.bossRef = AB.spawnEnemy(this, b.type, (b.x0 + b.x1) / 2 + 120, b.y - 100, { boss: true, spawnFx: true });
-    this.banner = { title: bd.title, sub: bd.sub, t: 0, max: 200, boss: true };
-    AB.audio.musicPlay(this.biome.bossMusic || 'boss'); AB.audio.setIntensity(0.9);
-    this.bossArena = b;
+  if (b && b.state === 0 && ps.length) {
+    var inside = 0;
+    for (pi = 0; pi < ps.length; pi++) if (ps[pi].x > b.x0 + 9 * T) inside++;
+    if (inside) {
+      // online: give the rest of the party a few seconds to catch up before the gates shut
+      if (!this.online || inside === ps.length || (b.pre = (b.pre || 0) + 1) > 420) this.bossBegin();
+      else if (b.pre === 1) this.toast('The Guardian stirs... gather your party!', 'skull', '#ff8a6a');
+    }
   }
-  if (b && b.state === 1 && this.bossRef && this.bossRef.dead) {
-    b.state = 2; L.setGates(b.gates, false);
-    this.slowmo = 100; this.flashScreen('#ffffff', 0.7); this.shake(10); AB.sfx('explode');
-    var pr = null;
-    for (i = 0; i < this.inter.length; i++) if (this.inter[i].kind === 'portal') pr = this.inter[i];
-    if (pr) { pr.hidden = false; this.ring(pr.x + 16, pr.y + 22, 100, '#b08aff'); AB.sfx('portal'); }
-    this.exitOpen = true; this.run.bossKills++; AB.save.data.stats.bossKills++;
-    this.toast('Guardian defeated! The way onward is open.', 'skull', '#ffd24a');
-    AB.audio.musicPlay(this.biome.music); AB.audio.setIntensity(0.2);
-    for (i = 0; i < 3; i++) this.pickups.push(this.mkPickup('heart', (b.x0 + b.x1) / 2 + (i - 1) * 30, b.y - 50, 40, { vy: -4 }));
-    // guaranteed rare reward
-    var wp = this.randomWeapon(1);
-    this.pickups.push(this.mkPickup('weapon', (b.x0 + b.x1) / 2, b.y - 60, 1, { vy: -4, weapon: AB.makeWeapon(wp.id, AB.clamp(this.stage + 1, 0, 4), AB.AFFIXES[Math.floor(Math.random() * AB.AFFIXES.length)].id) }));
-  }
+  if (b && b.state === 1 && this.bossRef && this.bossRef.dead) this.bossEnd();
 };
 
 /* ---------- main update ---------- */
 World.prototype.update = function (I) {
-  var p = this.player, L = this.level, i;
+  var p = this.player, L = this.level, i, on = this.online, host = on && on.role === 'host', cli = on && on.role === 'client';
   this.t++;
+  if (on) { this.freeze = 0; this.slowmo = 0; }   // online the world never stops for anyone
   if (this.pendingOffer && this.t > 40) {
     this.pendingOffer = false;
     this.modal = { type: 'altar', it: { offers: this.makeOffers(), used: false, free: true }, sel: 0, t: 0 };
-    return;
+    if (!on) return;
   }
   if (this.freeze > 0) { this.freeze--; this.updateFx(true); return; }
   if (this.slowmo > 0) { this.slowmo--; if (this.slowmo % 3 !== 0) { this.updateFx(true); return; } }
@@ -513,18 +571,26 @@ World.prototype.update = function (I) {
   this.updateCar();
   p.update(this, I);
   if (this.over && p.dead) { this.overT++; }
+  if (on) on.preTick(this);
 
-  // enemies
-  for (i = this.enemies.length - 1; i >= 0; i--) {
-    var e = this.enemies[i];
-    AB.updateEnemy(e, this);
-    if (e.dead) { this.enemies.splice(i, 1); }
+  // enemies (an online client only animates what the host tells it about)
+  if (cli) on.updateProxies(this);
+  else {
+    if (on) on.capturing = true;
+    for (i = this.enemies.length - 1; i >= 0; i--) {
+      var e = this.enemies[i];
+      if (host) this.player = on.targetFor(this, e);
+      AB.updateEnemy(e, this);
+      if (e.dead) { this.enemies.splice(i, 1); }
+    }
+    this.player = p;
   }
   for (i = this.projs.length - 1; i >= 0; i--) { this.projs[i].update(this); if (this.projs[i].dead) this.projs.splice(i, 1); }
   for (i = this.allies.length - 1; i >= 0; i--) { this.allies[i].update(this); if (this.allies[i].dead) this.allies.splice(i, 1); }
   this.updatePickups();
   for (i = this.props.length - 1; i >= 0; i--) { var pr = this.props[i]; if (pr.hp <= 0) this.props.splice(i, 1); else if (pr.flash > 0) pr.flash--; }
   this.updateArenas();
+  if (on) on.capturing = false;
   this.focus = (!p.dead && !this.modal) ? this.findFocus() : null;
   if (this.focus && I.pressed('interact')) { AB.input.consume('interact'); this.activate(this.focus); }
 
@@ -535,6 +601,7 @@ World.prototype.update = function (I) {
   AB.audio.setIntensity(this.enemies.length ? Math.min(1, 0.25 + this.enemiesAwake() * 0.12) : 0.1);
   this.updateFx(false);
   this.updateCamera();
+  if (on) on.postTick(this);
 };
 World.prototype.enemiesAwake = function () {
   var p = this.player, n = 0;
@@ -599,6 +666,7 @@ World.prototype.updateFx = function (frozen) {
 
 World.prototype.updateCamera = function () {
   var p = this.player, L = this.level, c = this.cam;
+  if (this.online && p.dead) { var sp = this.online.spectateTarget(this); if (sp) p = sp; }
   if (this.carCamera()) return;
   var tx = p.x + 5 + p.face * 26 - AB.W / 2, ty = p.y + 11 - AB.H * 0.58;
   if (this.bossArena && this.bossArena.state === 1) { tx = AB.clamp(tx, this.bossArena.x0 - 24, this.bossArena.x1 - AB.W + 24); }
