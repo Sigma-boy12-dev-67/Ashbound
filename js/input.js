@@ -38,6 +38,8 @@ var I = AB.input = {
     for (var i = 0; i < ACTIONS.length; i++) { pressed[ACTIONS[i]] = false; released[ACTIONS[i]] = false; }
     I.pointer.clicked = false; I.pointer.moved = false;
   },
+  /* an input that never presses anything: online the world keeps running while a menu is open */
+  blank: { isDown: function () { return false; }, pressed: function () { return false; }, released: function () { return false; }, consume: function () {} },
   clearAll: function () {
     ACTIONS.forEach(function (a) { held[a] = {}; pressed[a] = false; released[a] = false; });
   },
