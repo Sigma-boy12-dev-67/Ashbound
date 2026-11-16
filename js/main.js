@@ -39,6 +39,7 @@ function boot() {
   window.addEventListener('blur', function () { game.autoPause(); });
 
   game.setScene('title');
+  try { var mk = /[?&]mocknet=([^&]*)/.exec(location.search); if (mk) AB.net.useMock(decodeURIComponent(mk[1]), /[?&]guest\b/.test(location.search)); else AB.net.autoInit(); } catch (x) { /* ignore */ }
   var step = 1000 / 60, acc = 0, last = performance.now();
   /* a single error must never freeze the game: keep the loop alive and show what went wrong */
   function frame(now) {
