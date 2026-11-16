@@ -39,6 +39,7 @@ AB.spawnEnemy = function (w, type, x, y, o) {
   if (o.spawnFx) { e.spawnT = 36; w.ring(e.x + e.w / 2, e.y + e.h / 2, 30, def.boss ? '#ff4a4a' : e.pal.glow); }
   e.cancel = function () { if (!def.superArmor) { e.tele = false; if (e.state !== 'dead') { e.state = 'chase'; e.st = 0; } } };
   if (def.init) def.init(e, w);
+  e.id = ++w.enemyId;
   w.enemies.push(e);
   return e;
 };
