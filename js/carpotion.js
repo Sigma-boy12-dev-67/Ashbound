@@ -21,6 +21,7 @@ AB.CAR_DROP = { chest: 0.006, bigChest: 0.02, elite: 0.006, normal: 0.0002 };
 
 World.prototype.rollCarPotion = function (chance, x, y) {
   var r = this.run;
+  if (this.online) return false;   // no Car Potion in co-op
   if (r.carFound || r.carPotions > 0) return false;
   if (Math.random() >= chance) return false;
   r.carFound = true;
@@ -44,6 +45,7 @@ World.prototype.canDrinkCar = function () {
   return (this.run.carPotions || 0) > 0 && !this.car && !p.dead && !this.over && !this.modal;
 };
 World.prototype.startCarPotion = function () {
+  if (this.online) return;
   if (!this.canDrinkCar()) { if ((this.run.carPotions || 0) > 0) AB.sfx('error'); return; }
   var p = this.player;
   this.run.carPotions--;
