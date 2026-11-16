@@ -96,6 +96,8 @@ function backClicked(scene) {
 }
 var kbHint = function () { return AB.input.lastDevice === 'touch' ? '' : (AB.input.lastDevice === 'pad' ? 'STICK select   A confirm   B back' : 'ARROWS select   ENTER confirm   ESC back'); };
 
+AB.ui = { drawBg: drawBg, header: header, hintBar: hintBar, backBtn: backBtn, backClicked: backClicked, Menu: Menu };
+
 /* ===================== TITLE ===================== */
 S.title = {
   enter: function (game) {
@@ -103,12 +105,26 @@ S.title = {
     AB.audio.musicPlay('title'); AB.audio.setIntensity(0.2);
     this.menu = new Menu([
       { label: 'DESCEND', act: function () { game.go('loadout'); AB.sfx('confirm'); } },
+      { label: 'RESUME DESCENT', hidden: true, act: function () { if (self.cp) { AB.sfx('confirm'); game.resumeRun(self.cp); } } },
+      { label: 'ONLINE CO-OP', act: function () { game.go('online'); AB.sfx('confirm'); } },
       { label: 'THE FORGE', act: function () { game.go('forge'); AB.sfx('confirm'); } },
       { label: 'OPTIONS', act: function () { game.go('options', { from: 'title' }); AB.sfx('confirm'); } },
       { label: 'CHRONICLE', act: function () { game.go('stats'); AB.sfx('confirm'); } }
     ]);
     if (AB.canFullscreen && AB.canFullscreen()) this.menu.items.push({ label: 'FULLSCREEN', act: function () { AB.toggleFullscreen(); } });
     this.sparks = [];
+    /* signed-in players with a saved, unfinished descent get a RESUME button */
+    this.cp = null;
+    AB.net.onAuth(function () { self.refreshCp(); });
+  },
+  refreshCp: function () {
+    var self = this;
+    if (!AB.net.canSave()) { this.cp = null; this.menu.items[1].hidden = true; return; }
+    AB.cloud.loadCheckpoint().then(function (cp) {
+      if (AB.game.name !== 'title') return;
+      self.cp = cp; var it = self.menu.items[1];
+      if (cp) { it.hidden = false; it.label = 'RESUME  STAGE ' + (cp.stage + 1); } else it.hidden = true;
+    });
   },
   update: function (I) { this.menu.update(I); },
   draw: function (c) {
@@ -121,7 +137,8 @@ S.title = {
     AB.text(c, 'ASHBOUND', AB.W / 2, 50, '#ffd9a0', 6, 'c', false);
     c.fillStyle = '#ff9a3a'; c.fillRect(AB.W / 2 - 90, 104, 180, 1);
     AB.text(c, 'A ROGUELITE OF ASH AND EMBERS', AB.W / 2, 112, '#b89a80', 1, 'c', true);
-    this.menu.drawCentered(c, AB.W / 2, 134, 20, 2, 120);
+    var vis = this.menu.items.filter(function (m) { return !m.hidden; }).length;
+    this.menu.drawCentered(c, AB.W / 2, vis > 6 ? 128 : 134, vis > 6 ? 17 : 20, 2, 120);
     AB.text(c, 'EMBERS ' + AB.save.data.embers, 10, AB.H - 14, '#ffb070', 1, 'l', true);
     AB.text(c, 'V' + AB.VERSION, AB.W - 10, AB.H - 14, '#5a5068', 1, 'r', true);
   }
@@ -376,7 +393,7 @@ S.results = {
     if (r.win) AB.glow(c, AB.W / 2, 44, 120, '#ffd070', 0.5);
     AB.text(c, r.win ? 'VICTORY' : 'YOU DIED', AB.W / 2, 22, r.win ? '#ffe9a8' : '#ff5a5a', 4, 'c', r.win ? '#7a4a08' : '#4a0808');
     AB.text(c, r.win ? 'The Frost Sovereign falls. The ash settles.' : (r.where || ''), AB.W / 2, 58, '#a89e98', 1, 'c', true);
-    var rows = [['Time', AB.fmtTime(r.time)], ['Foes slain', r.kills], ['Guardians felled', r.bossKills], ['Gold gathered', r.gold], ['Damage taken', r.damage]];
+    var rows = [['Time', AB.fmtTime(r.time)], ['Foes slain', r.kills], ['Guardians felled', r.bossKills], r.online ? ['Mode', 'Co-op'] : ['Gold gathered', r.gold], ['Damage taken', r.damage]];
     AB.panel(c, 130, 74, 220, rows.length * 14 + 40, '#15101a', '#6b5a48');
     for (var i = 0; i < rows.length; i++) {
       AB.text(c, rows[i][0], 144, 84 + i * 14, '#a89e98', 1, 'l', true);
