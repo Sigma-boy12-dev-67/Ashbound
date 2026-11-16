@@ -414,8 +414,14 @@ Proj.prototype.col = function () { return this.color || PCOL[this.kind] || '#fff
 
 Proj.prototype.update = function (w) {
   this.t++;
-  if (this.homing && w.player && !w.player.dead) {
-    var dx = w.player.x + 5 - this.x, dy = w.player.y + 10 - this.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+  if (this.net) {   // online: an enemy projectile mirrored from the host, it only moves and animates here
+    this.vy += this.grav; this.x += this.vx; this.y += this.vy; this.spin += 0.3;
+    if (--this.life <= 0) this.dead = true;
+    return;
+  }
+  var hp = this.homing ? w.nearestPlayer(this.x, this.y) : null;
+  if (hp && !hp.dead) {
+    var dx = hp.x + 5 - this.x, dy = hp.y + 10 - this.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
     var sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
     this.vx += dx / d * this.homing; this.vy += dy / d * this.homing;
     var ns = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
@@ -438,6 +444,7 @@ Proj.prototype.update = function (w) {
     // bombs detonate on enemy contact
     for (var q = 0; q < w.enemies.length; q++) { var en = w.enemies[q]; if (!en.dead && AB.overlap(this, en)) { this.die(w, true); return; } }
     return; } }
+  if (this.team === 'p' && this.ghost) return;   // a teammate's arrow: look only, their screen did the hitting
   if (this.team === 'p') {
     for (var i = 0; i < w.enemies.length; i++) {
       var e = w.enemies[i];
@@ -449,11 +456,17 @@ Proj.prototype.update = function (w) {
     }
     w.hitProps(this);
   } else {
-    var p = w.player;
-    if (p && !p.dead && AB.overlap(this, p)) {
-      var res = w.hurtPlayer(this.dmg, this.x, { proj: this, status: this.status });
-      if (res === 'parried') return;
-      if (res !== 'ignored' || !this.small) this.die(w, false);
+    var ps = w.allPlayers(), keep = w.player;
+    for (var pi = 0; pi < ps.length; pi++) {
+      var p = ps[pi];
+      if (p && !p.dead && AB.overlap(this, p)) {
+        w.player = p;
+        var res = w.hurtPlayer(this.dmg, this.x, { proj: this, status: this.status });
+        w.player = keep;
+        if (res === 'parried') return;
+        if (res !== 'ignored' || !this.small) this.die(w, false);
+        break;
+      }
     }
   }
 };
