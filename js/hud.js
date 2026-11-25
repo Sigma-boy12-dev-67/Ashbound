@@ -48,7 +48,7 @@ AB.drawHUD = function (c, w, game) {
       AB.text(c, pl[i].name, 10, py, pl[i].dead ? '#8a8096' : '#d8cfc0', 1, 'l', true);
       AB.bar(c, 70, py + 1, 58, 5, pl[i].dead ? 0 : Math.max(0, pl[i].hp), pl[i].max, pl[i].dead ? '#555' : '#6ad86a'); py += 10;
     }
-    if (p.dead) AB.text(c, 'SPECTATING - your party fights on', AB.W / 2, 40, '#ff8a8a', 1, 'c', true);
+    if (p.dead) { var rv = w.online && w.online.spectateTarget(w) ? Math.max(0, Math.ceil((AB.online.REVIVE_T - (p.reviveT || 0)) / 60)) : -1; AB.text(c, rv >= 0 ? 'DOWN - you rise again in ' + rv + 's' : 'SPECTATING - your party fights on', AB.W / 2, 40, '#ff8a8a', 1, 'c', true); }
   }
 
   /* ---- weapon & skill slots ---- */
