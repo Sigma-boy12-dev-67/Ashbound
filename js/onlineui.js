@@ -87,7 +87,7 @@ S.online = {
   draw: function (c) {
     var g = this.game, y = 150;
     U.drawBg(c, g, 3, 0.6);
-    U.header(c, 'ONLINE CO-OP', '2 to 4 players descend together. No coins online.');
+    U.header(c, 'ONLINE CO-OP', 'Any number of players descend together. No coins online.');
     if (!N.available()) {
       AB.text(c, 'ONLINE PLAY IS NOT SET UP YET', AB.W / 2, 90, '#ffb070', 1, 'c', true);
       AB.paragraph(c, 'The game owner needs to add a free Firebase project. Steps are in ONLINE-SETUP.md, then fill in js/netconfig.js.', 90, 108, 50, '#9a8f9e', 1, 10);
@@ -151,7 +151,6 @@ S.lobby = {
       items.push({ label: function () { return 'GEAR       < ' + (s.resume ? 'SAVED (STAGE ' + (self.cp.stage + 1) + ')' : 'NEW') + ' >'; }, adj: function () { s.resume = !s.resume; AB.sfx('click'); self.push(); } });
     }
     if (sess.role === 'host') items.push({ label: 'START DESCENT', act: function () { AB.sfx('confirm'); self.push(); sess.start(s.resume && self.cp ? self.cp.stage : 0); } });
-    else items.push({ label: function () { return sess.players[sess.uid] && sess.players[sess.uid].ready ? 'READY  (CLICK TO CANCEL)' : 'READY'; }, act: function () { var r = sess.players[sess.uid] && sess.players[sess.uid].ready; sess.setSelf({ ready: r ? 0 : 1 }); AB.sfx('click'); } });
     items.push({ label: 'LEAVE ROOM', act: function () { self.leave(); } });
     var keep = this.menu ? this.menu.sel : 0;
     this.menu = new Menu(items); this.menu.sel = Math.min(keep, items.length - 1);
@@ -169,19 +168,21 @@ S.lobby = {
   draw: function (c) {
     var g = this.game, sess = this.sess;
     U.drawBg(c, g, 4, 0.6);
-    U.header(c, 'CO-OP ROOM', sess ? (sess.role === 'host' ? 'You are the host. Share the code, then start.' : 'Waiting for the host to start.') : '');
+    U.header(c, 'CO-OP ROOM', sess ? (sess.role === 'host' ? 'You are the host. Share the code, then start whenever you like.' : 'Pick your gear. The host starts the descent.') : '');
     if (sess) {
       AB.text(c, 'ROOM CODE', AB.W - 24, 14, '#8a7f90', 1, 'r', true);
       AB.text(c, sess.code, AB.W - 24, 24, '#9ae8ff', 2, 'r', true);
       this.menu && this.menu.drawCentered(c, AB.W / 2, 58, 17, 1, 250);
-      var y = 150, uid, n = 0;
-      AB.text(c, 'PARTY', 24, y, '#8a7f90', 1, 'l', true);
-      for (uid in sess.players) {
+      var uid, ids = Object.keys(sess.players), many = ids.length > 6, y0 = 150, colW = many ? 216 : 0, k = 0;
+      AB.text(c, 'PARTY (' + ids.length + ')', 24, y0, '#8a7f90', 1, 'l', true);
+      for (k = 0; k < ids.length; k++) {
+        uid = ids[k];
         var p = sess.players[uid], isH = sess.meta && sess.meta.host === uid;
-        y += 12; n++;
-        AB.text(c, (isH ? '* ' : '  ') + p.name + (uid === sess.uid ? ' (you)' : ''), 24, y, '#f0e4d0', 1, 'l', true);
-        AB.text(c, (AB.WEAPONS[p.w0] ? AB.WEAPONS[p.w0].name : '?') + ' / ' + (AB.WEAPONS[p.w1] ? AB.WEAPONS[p.w1].name : '?') + ' / ' + (AB.SKILLS[p.sk] ? AB.SKILLS[p.sk].name : '?'), 170, y, '#9a8f9e', 1, 'l', true);
-        AB.text(c, isH ? 'HOST' : (p.ready ? 'READY' : '...'), AB.W - 24, y, p.ready || isH ? '#7affb0' : '#6a6078', 1, 'r', true);
+        var col = many ? (k % 2) : 0, row = many ? Math.floor(k / 2) : k, x0 = 24 + col * colW, y = y0 + 12 + row * 11;
+        if (y > AB.H - 34) break;
+        AB.text(c, (isH ? '* ' : '  ') + p.name + (uid === sess.uid ? ' (you)' : ''), x0, y, '#f0e4d0', 1, 'l', true);
+        if (!many) AB.text(c, (AB.WEAPONS[p.w0] ? AB.WEAPONS[p.w0].name : '?') + ' / ' + (AB.WEAPONS[p.w1] ? AB.WEAPONS[p.w1].name : '?') + ' / ' + (AB.SKILLS[p.sk] ? AB.SKILLS[p.sk].name : '?'), 170, y, '#9a8f9e', 1, 'l', true);
+        if (isH) AB.text(c, 'HOST', AB.W - 24, y, '#7affb0', 1, 'r', true);
       }
       AB.text(c, N.canSave() ? 'Signed in: your descent is saved if it is cut short.' : 'Guest: nothing is saved.', AB.W / 2, AB.H - 30, N.canSave() ? '#7affb0' : '#8a8096', 1, 'c', true);
     }
