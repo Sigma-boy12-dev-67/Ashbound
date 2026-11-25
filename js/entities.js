@@ -2,546 +2,441 @@
 'use strict';
 var AB = window.AB;
 var T = AB.T, TILE = AB.TILE;
-var GRAV = 0.4, MAXFALL = 8.6;
+function R(c, col, x, y, w, h) { c.fillStyle = col; c.fillRect(x, y, w, h); }
 
-/* ===================== PHYSICS ===================== */
-// Moves body with axis-separated tile collision. body: x,y,w,h,vx,vy
-AB.moveBody = function (b, lvl) {
-  var tx0, tx1, ty0, ty1, tx, ty, t;
-  b.hitWall = 0; b.hitCeil = false;
-  var wasGround = b.onGround;
-  b.onGround = false;
-  // ---- X ----
-  b.x += b.vx;
-  ty0 = Math.floor(b.y / T); ty1 = Math.floor((b.y + b.h - 0.01) / T);
-  if (b.vx > 0) {
-    tx = Math.floor((b.x + b.w - 0.01) / T);
-    for (ty = ty0; ty <= ty1; ty++) if (lvl.solidAt(tx, ty)) { b.x = tx * T - b.w; b.vx = 0; b.hitWall = 1; break; }
-  } else if (b.vx < 0) {
-    tx = Math.floor(b.x / T);
-    for (ty = ty0; ty <= ty1; ty++) if (lvl.solidAt(tx, ty)) { b.x = (tx + 1) * T; b.vx = 0; b.hitWall = -1; break; }
+var PALS = [
+  { skin: '#8a9a7a', cloth: '#4a4660', dark: '#22202e', glow: '#9aff9a', bone: '#d8d0b8', blood: '#6a8a4a' },
+  { skin: '#7a5444', cloth: '#4a2a26', dark: '#1a0e0c', glow: '#ff8a2a', bone: '#c8a888', blood: '#ff6a2a' },
+  { skin: '#9ab0d0', cloth: '#3a4a78', dark: '#14182a', glow: '#7ae0ff', bone: '#d0e8f8', blood: '#9ae8ff' }
+];
+AB.PALS = PALS;
+AB.ENEMY = {};
+AB.BOSSES = {};
+var E = AB.ENEMY;
+
+/* ===================== FRAMEWORK ===================== */
+AB.spawnEnemy = function (w, type, x, y, o) {
+  o = o || {};
+  var def = AB.ENEMY[type] || AB.BOSSES[type], B = w.biome, asc = 1 + 0.15 * (AB.save.data.asc || 0);
+  var e = {
+    type: type, def: def, w: def.w, h: def.h, vx: 0, vy: 0, face: -1, onGround: false, flash: 0, stun: 0, freezeT: 0, burn: 0, slow: 0,
+    hurtT: 0, t: 0, state: 'idle', st: 0, dead: false, boss: !!def.boss, arena: o.arena, tele: false, alpha: 1,
+    gold: def.gold, blood: PALS[w.stage].blood, pal: PALS[w.stage], kbRes: def.kbRes || 0, noKb: !!def.noKb, noStun: !!def.noStun,
+    armor: 0, elite: null, spd: 1, atkMul: 1, lastHit: -999, bi: w.stage, aux: {}
+  };
+  if (def.fly) { e.x = x - e.w / 2; e.y = y - e.h / 2; } else { e.x = x - e.w / 2; e.y = y - e.h; }
+  var hpMul = def.boss ? 1 : B.hpMul;
+  e.maxHp = e.hp = Math.round(def.hp * hpMul * asc * (def.boss ? 1 + (AB.save.data.asc || 0) * 0.2 : 1));
+  e.dmg = def.dmg * (def.boss ? 1 + w.stage * 0.0 : B.dmgMul) * (1 + 0.1 * (AB.save.data.asc || 0));
+  if (o.elite && !def.boss) {
+    e.elite = AB.pick(['frenzied', 'armored', 'volatile']);
+    e.maxHp = e.hp = Math.round(e.maxHp * 1.8);
+    if (e.elite === 'frenzied') { e.spd = 1.3; e.atkMul = 0.7; }
+    if (e.elite === 'armored') { e.armor = 0.3; e.maxHp = e.hp = Math.round(e.maxHp * 1.3); }
+    e.dmg *= 1.15; e.gold = (e.gold || 3) + 3;
   }
-  // ---- Y ----
-  var prevBottom = b.y + b.h;
-  b.y += b.vy;
-  tx0 = Math.floor((b.x + 0.01) / T); tx1 = Math.floor((b.x + b.w - 0.01) / T);
-  if (b.vy >= 0) {
-    ty = Math.floor((b.y + b.h) / T);
-    for (tx = tx0; tx <= tx1; tx++) {
-      t = lvl.tileAt(tx, ty);
-      if (t === TILE.SOLID || t === TILE.GATE || (t === TILE.ONEWAY && prevBottom <= ty * T + 0.5 && !(b.dropT > 0))) {
-        b.y = ty * T - b.h; b.vy = 0; b.onGround = true; break;
-      }
-    }
-  } else {
-    ty = Math.floor(b.y / T);
-    for (tx = tx0; tx <= tx1; tx++) if (lvl.solidAt(tx, ty)) { b.y = (ty + 1) * T; b.vy = 0; b.hitCeil = true; break; }
-  }
-  if (b.dropT > 0) b.dropT--;
-  return b.onGround && !wasGround;
-};
-AB.touchesTile = function (b, lvl, type) {
-  var tx0 = Math.floor(b.x / T), tx1 = Math.floor((b.x + b.w - 0.01) / T), ty0 = Math.floor(b.y / T), ty1 = Math.floor((b.y + b.h - 0.01) / T);
-  for (var y = ty0; y <= ty1; y++) for (var x = tx0; x <= tx1; x++) if (lvl.tileAt(x, y) === type) return true;
-  return false;
-};
-// is there floor ahead (for patrol AI)
-AB.floorAhead = function (b, lvl, dir, dist) {
-  var x = dir > 0 ? b.x + b.w + dist : b.x - dist;
-  var tx = Math.floor(x / T), ty = Math.floor((b.y + b.h + 2) / T);
-  for (var i = 0; i < 3; i++) {
-    var t = lvl.tileAt(tx, ty + i);
-    if (t === TILE.SOLID || t === TILE.ONEWAY || t === TILE.GATE) return true;
-    if (t === TILE.SPIKE) return false;
-  }
-  return false;
-};
-AB.wallAhead = function (b, lvl, dir) {
-  var x = dir > 0 ? b.x + b.w + 2 : b.x - 2;
-  var tx = Math.floor(x / T);
-  return lvl.solidAt(tx, Math.floor((b.y + b.h - 4) / T)) || lvl.solidAt(tx, Math.floor((b.y + 4) / T));
+  e.home = e.x; e.dir = AB.chance(0.5) ? 1 : -1;
+  if (o.spawnFx) { e.spawnT = 36; w.ring(e.x + e.w / 2, e.y + e.h / 2, 30, def.boss ? '#ff4a4a' : e.pal.glow); }
+  e.cancel = function () { if (!def.superArmor) { e.tele = false; if (e.state !== 'dead') { e.state = 'chase'; e.st = 0; } } };
+  if (def.init) def.init(e, w);
+  e.id = ++w.enemyId;
+  w.enemies.push(e);
+  return e;
 };
 
-/* ===================== STATS ===================== */
-AB.newStats = function () {
-  return { maxHp: 100, dmg: 1, crit: 0.05, critDmg: 1.8, spd: 1, atkSpd: 1, cdr: 0, killHeal: 0, thorns: 0,
-           goldMul: 1, emberMul: 1, armor: 0, jumps: 1, procBurn: 0, procFreeze: 0, procShock: 0,
-           lastStand: 0, revive: 0, flasks: 1, flaskHeal: 0, rollI: 14 };
+AB.updateEnemy = function (e, w) {
+  if (e.spawnT > 0) { e.spawnT--; if (e.spawnT === 0) { w.burst(e.x + e.w / 2, e.y + e.h / 2, e.pal.glow, 12, { life: 18, size: 2 }); } return; }
+  var p = w.player;
+  var far = Math.abs(e.x - p.x) > 480 || Math.abs(e.y - p.y) > 330;
+  if (far && !e.boss && e.arena === undefined) { if (!e.def.fly) { e.vy = Math.min(e.vy + 0.4, 8); AB.moveBody(e, w.level); } return; }
+  e.t++;
+  if (e.flash > 0) e.flash--;
+  if (e.hitF > 0) e.hitF--;
+  if (e.burn > 0) {
+    e.burn--;
+    if (e.burn % 30 === 0) w.damageEnemy(e, Math.max(3, Math.round(6 * (1 + 0.3 * w.stage) * (1 + p.s.dmg * 0.2))), { src: 'dot', kb: 0 });
+    if (e.burn % 4 === 0) w.burst(e.x + e.w / 2 + AB.rand(-4, 4), e.y + AB.rand(0, e.h * 0.6), '#ff8a2a', 1, { vx: 0.2, vy: 0.2, dy: -0.8, g: -0.02, life: 16, size: 2, glow: true });
+    if (e.dead) return;
+  }
+  if (e.freezeT > 0) { e.freezeT--; physicsOnly(e, w); if (e.freezeT === 0) w.burst(e.x + e.w / 2, e.y + e.h / 2, '#cfeeff', 10, { life: 16, size: 2 }); return; }
+  if (e.stun > 0) { e.stun--; e.tele = false; physicsOnly(e, w); return; }
+  if (e.hurtT > 0 && !e.boss && !e.def.superArmor) { e.hurtT--; if (e.state === 'windup' || e.state === 'strike' || e.state === 'cast') e.cancel(); physicsOnly(e, w); return; }
+  if (e.slow > 0) e.slow--;
+  e.def.update(e, w);
+  if (e.elite === 'volatile' && e.t % 20 === 0) w.burst(e.x + e.w / 2, e.y + 4, '#ff5a1a', 1, { life: 14, size: 2, glow: true, g: -0.03 });
 };
-
-/* ===================== PLAYER ===================== */
-function Player(run, x, y) {
-  this.run = run; this.s = run.stats;
-  this.x = x; this.y = y - 22; this.w = 10; this.h = 22;
-  this.vx = 0; this.vy = 0; this.face = 1;
-  this.hp = run.hp; this.onGround = false;
-  this.state = 'idle'; this.anim = 0; this.t = 0;
-  this.coyote = 0; this.jumpBuf = 0; this.jumpsLeft = this.s.jumps; this.dropT = 0;
-  this.rollT = 0; this.rollCd = 0; this.rollDir = 1;
-  this.iframes = 0; this.hurtT = 0; this.flash = 0;
-  this.atk = null; this.atkCd = 0; this.combo = 0; this.comboT = 0; this.buf = { slot: -1, t: 0 };
-  this.guard = 0; this.guardSlot = 0; this.parryT = 0; this.drinkT = 0;
-  this.cd = [0, 0]; this.buffT = 0; this.dead = false; this.deadT = 0;
-  this.safeX = x; this.safeY = y - 22; this.safeT = 0;
-  this.scarf = []; for (var i = 0; i < 7; i++) this.scarf.push({ x: x, y: y - 16 });
-  this.landSq = 0; this.runDust = 0; this.fallV = 0;
-  this.noHurtT = 60;
+function physicsOnly(e, w) {
+  if (e.def.fly) { e.vx *= 0.9; e.vy *= 0.9; moveFly(e, w); return; }
+  e.vy = Math.min(e.vy + 0.4, 8); AB.moveBody(e, w.level); if (e.onGround) e.vx *= 0.8;
 }
-AB.Player = Player;
-
-Player.prototype.dmgMul = function () {
-  var s = this.s, m = s.dmg;
-  if (this.hp / s.maxHp < 0.35) m += s.lastStand;
-  if (this.buffT > 0) m += 0.35;
-  if (AB.cheat && AB.cheat.oneHit) m *= 100;
-  return m;
-};
-Player.prototype.weapon = function (slot) { return this.run.weapons[slot]; };
-
-Player.prototype.update = function (w, I) {
-  var s = this.s, lvl = w.level, dir = (I.isDown('right') ? 1 : 0) - (I.isDown('left') ? 1 : 0);
-  this.t++;
-  if (this.dead) { this.deadT++; this.vx *= 0.9; this.vy = Math.min(this.vy + GRAV, MAXFALL); AB.moveBody(this, lvl); return; }
-  if (this.iframes > 0) this.iframes--;
-  if (this.noHurtT > 0) this.noHurtT--;
-  if (this.hurtT > 0) this.hurtT--;
-  if (this.flash > 0) this.flash--;
-  if (this.rollCd > 0) this.rollCd--;
-  if (this.atkCd > 0) this.atkCd--;
-  if (this.comboT > 0) { this.comboT--; if (this.comboT === 0) this.combo = 0; }
-  if (this.buffT > 0) this.buffT--;
-  if (this.landSq > 0) this.landSq--;
-  for (var c = 0; c < 2; c++) if (this.cd[c] > 0) this.cd[c]--;
-  if (this.buf.t > 0) this.buf.t--;
-
-  var rolling = this.rollT > 0, attacking = !!this.atk, guarding = this.guard > 0, drinking = this.drinkT > 0;
-  var spd = 1.75 * s.spd * (this.buffT > 0 ? 1.2 : 1);
-  var locked = this.hurtT > 6;
-
-  // ---- inputs: roll ----
-  if (!locked && I.pressed('roll') && this.rollCd === 0 && !rolling) {
-    this.rollT = 20; this.rollCd = 34; this.rollDir = dir || this.face; this.face = this.rollDir;
-    this.iframes = Math.max(this.iframes, s.rollI); this.atk = null; this.guard = 0; this.drinkT = 0;
-    AB.sfx('roll'); w.dust(this.x + 5, this.y + 22, 5);
-    rolling = true; attacking = false; guarding = false; drinking = false;
-  }
-  // ---- jump ----
-  if (I.pressed('jump') && !(I.isDown('down') && this.onGround && lvl.tileAt(Math.floor((this.x + 5) / T), Math.floor((this.y + 23) / T)) === TILE.ONEWAY)) this.jumpBuf = 7;
-  else if (this.jumpBuf > 0) this.jumpBuf--;
-  if (this.onGround) { this.coyote = 6; this.jumpsLeft = s.jumps; } else if (this.coyote > 0) this.coyote--;
-  // drop through one-way
-  if (I.isDown('down') && I.pressed('jump') && this.onGround && lvl.tileAt(Math.floor((this.x + 5) / T), Math.floor((this.y + 23) / T)) === TILE.ONEWAY) {
-    this.dropT = 10; this.y += 2; this.onGround = false; this.jumpBuf = 0;
-  }
-  if (!locked && this.jumpBuf > 0 && !drinking && !guarding) {
-    if (this.coyote > 0) {
-      this.vy = -6.9; this.coyote = 0; this.jumpBuf = 0; this.onGround = false; AB.sfx('jump'); w.dust(this.x + 5, this.y + 22, 4);
-      if (rolling) { this.rollT = 0; this.vx = this.face * spd * 1.5; }
-    } else if (this.jumpsLeft > 0) {
-      this.vy = -6.3; this.jumpsLeft--; this.jumpBuf = 0; AB.sfx('djump');
-      w.burst(this.x + 5, this.y + 22, '#cfd8ff', 8, { vy: 1, vx: 1.4, life: 18, size: 2 });
-      if (attacking) { /* keep swing */ }
-    }
-  }
-  if (!I.isDown('jump') && this.vy < -2.8 && this.rollT === 0) this.vy = -2.8; // variable height
-
-  // ---- horizontal movement ----
-  if (rolling) {
-    var rp = this.rollT / 20;
-    this.vx = this.rollDir * (3.5 * (0.45 + 0.55 * rp) + (s.spd - 1) * 2);
-    this.rollT--; this.state = 'roll';
-    if (this.t % 4 === 0) w.dust(this.x + 5, this.y + 22, 1);
-    if (this.rollT === 0) this.vx *= 0.4;
-  } else if (!locked) {
-    var mult = attacking ? 0.4 : (guarding ? 0.25 : (drinking ? 0.5 : 1));
-    var acc = this.onGround ? 0.45 : 0.28;
-    var target = dir * spd * mult;
-    if (dir !== 0 && !attacking && !guarding) this.face = dir;
-    if (dir !== 0 || !attacking) {
-      if (this.vx < target) this.vx = Math.min(target, this.vx + acc); else if (this.vx > target) this.vx = Math.max(target, this.vx - acc);
-    }
-    if (dir === 0 && this.onGround) this.vx *= 0.78;
-  }
-  if (this.hurtT > 0) this.vx *= 0.97;
-
-  // ---- weapons ----
-  if (!locked && !rolling && !drinking) {
-    var slots = ['attack', 'secondary'];
-    for (var sl = 0; sl < 2; sl++) {
-      var wp = this.run.weapons[sl];
-      if (!wp) continue;
-      if (wp.type === 'shield') {
-        if (I.isDown(slots[sl]) && !attacking && this.atkCd === 0 && (this.guard > 0 || I.pressed(slots[sl]))) {
-          if (this.guard === 0) { this.guardSlot = sl; this.parryT = 12; AB.sfx('block'); }
-          if (this.guard < 90) this.guard++; else this.guard = 0;
-        } else if (this.guard > 0 && this.guardSlot === sl) { this.guard = 0; this.atkCd = 12; }
-      } else if (I.pressed(slots[sl])) { this.buf.slot = sl; this.buf.t = 9; }
-    }
-    if (this.buf.t > 0 && !attacking && this.atkCd === 0 && !guarding) this.startAttack(w, this.buf.slot, I);
-    if (this.parryT > 0) this.parryT--;
-    if (this.guard === 0) this.parryT = 0;
-    // skills
-    if (I.pressed('skill1')) this.useSkill(w, 0);
-    if (I.pressed('skill2')) this.useSkill(w, 1);
-    if (I.pressed('heal')) this.startDrink(w);
-  }
-  if (this.atk) this.updateAttack(w, I);
-  if (drinking) {
-    this.drinkT--;
-    if (this.t % 6 === 0) w.burst(this.x + 5, this.y + 6, '#7affb0', 2, { vy: -1, life: 24, size: 2 });
-    if (this.drinkT === 0) {
-      var amt = Math.round(s.maxHp * (0.4 + s.flaskHeal));
-      this.heal(w, amt); AB.sfx('heal');
-    }
-  }
-
-  // ---- physics ----
-  this.vy = Math.min(this.vy + GRAV, MAXFALL);
-  if (this.vy > 2) this.fallV = this.vy;
-  var landed = AB.moveBody(this, lvl);
-  if (landed) {
-    this.landSq = 6; AB.sfx('land');
-    if (this.fallV > 4) w.dust(this.x + 5, this.y + 22, 5);
-    this.fallV = 0;
-  }
-  // ---- hazards ----
-  if (AB.touchesTile(this, lvl, TILE.SPIKE) && this.iframes <= 0 && this.noHurtT <= 0) {
-    w.hurtPlayer(Math.max(12, Math.round(s.maxHp * 0.12)), this.x, { spike: true });
-    this.x = this.safeX; this.y = this.safeY; this.vx = 0; this.vy = 0; this.iframes = 50;
-  } else if (AB.touchesTile(this, lvl, TILE.SPIKE)) { this.x = this.safeX; this.y = this.safeY; this.vx = 0; this.vy = 0; }
-  if (this.onGround && !this.dead) {
-    this.safeT++;
-    if (this.safeT > 8) {
-      var cx = Math.floor((this.x + 5) / T), fy = Math.floor((this.y + 23) / T);
-      if (lvl.tileAt(cx - 1, fy) !== TILE.SPIKE && lvl.tileAt(cx + 1, fy) !== TILE.SPIKE && lvl.tileAt(cx - 2, fy) !== TILE.SPIKE && lvl.tileAt(cx + 2, fy) !== TILE.SPIKE &&
-          lvl.tileAt(cx - 1, fy) !== TILE.AIR && lvl.tileAt(cx + 1, fy) !== TILE.AIR && lvl.tileAt(cx - 2, fy) !== TILE.AIR && lvl.tileAt(cx + 2, fy) !== TILE.AIR) { this.safeX = this.x; this.safeY = this.y; }
-    }
-  } else this.safeT = 0;
-
-  // ---- state / anim ----
-  if (!rolling) {
-    if (this.hurtT > 0) this.state = 'hurt';
-    else if (guarding) this.state = 'guard';
-    else if (attacking) this.state = 'attack';
-    else if (drinking) this.state = 'drink';
-    else if (!this.onGround) this.state = this.vy < 0 ? 'jump' : 'fall';
-    else this.state = Math.abs(this.vx) > 0.3 ? 'run' : 'idle';
-  }
-  this.anim += this.state === 'run' ? Math.abs(this.vx) * 0.16 : 0.07;
-  if (this.state === 'run' && this.onGround && this.t % 9 === 0) w.dust(this.x + 5, this.y + 22, 1);
-
-  // scarf physics
-  var hx = this.x + 5 - this.face * 3, hy = this.y + 7;
-  var prev = { x: hx, y: hy };
-  for (var i = 0; i < this.scarf.length; i++) {
-    var sc = this.scarf[i];
-    sc.x += (prev.x - this.face * 1.8 - sc.x) * 0.4 - this.vx * 0.12;
-    sc.y += (prev.y + 0.9 + Math.sin(this.t * 0.18 + i) * 0.35 - sc.y) * 0.4 + Math.min(this.vy, 3) * -0.12;
-    prev = sc;
-  }
-};
-
-Player.prototype.heal = function (w, amt) {
-  var before = this.hp;
-  this.hp = Math.min(this.s.maxHp, this.hp + amt);
-  if (this.hp > before) w.text(this.x + 5, this.y - 4, '+' + Math.round(this.hp - before), '#7affb0');
-  w.burst(this.x + 5, this.y + 10, '#7affb0', 10, { vy: -1.2, vx: 1.2, life: 30, size: 2 });
-};
-Player.prototype.startDrink = function (w) {
-  if (this.drinkT > 0 || this.run.flasks <= 0 || this.hp >= this.s.maxHp || this.rollT > 0 || this.atk) {
-    if (this.run.flasks <= 0 || this.hp >= this.s.maxHp) AB.sfx('error');
-    return;
-  }
-  this.run.flasks--; this.drinkT = 32; this.guard = 0;
-};
-
-/* ---------- attacks ---------- */
-Player.prototype.startAttack = function (w, slot, I) {
-  var wp = this.run.weapons[slot]; if (!wp) return;
-  this.buf.t = 0;
-  var rate = Math.max(6, Math.round(wp.rate / this.s.atkSpd));
-  this.atk = { slot: slot, wp: wp, t: 0, dur: rate, hit: [], combo: 0, fired: false, up: I.isDown('up') };
-  if (wp.type === 'melee') {
-    if (wp.combo > 1) { this.atk.combo = this.comboT > 0 ? this.combo % wp.combo : 0; this.combo = this.atk.combo + 1; this.comboT = rate + 22; }
-    if (this.atk.combo === wp.combo - 1 && wp.combo >= 3) this.atk.dur = Math.round(rate * 1.3);
-    this.vx += this.face * (wp.thrust ? 1.8 : 1.1);
-    AB.sfx(wp.dmg > 30 ? 'swingHeavy' : 'swing');
-  } else AB.sfx(wp.id === 'stormbolt' ? 'shoot' : 'bow');
-  this.atkCd = 0;
-};
-Player.prototype.updateAttack = function (w, I) {
-  var a = this.atk, wp = a.wp; a.t++;
-  var p = a.t / a.dur;
-  if (wp.type === 'melee') {
-    // active window
-    if (p > 0.2 && p < 0.65) {
-      var hb = this.meleeBox(a);
-      w.playerMelee(this, hb, a);
-    }
-    if (wp.slam && !a.fired && a.t === Math.round(a.dur * 0.4)) {
-      a.fired = true;
-      w.shake(5); AB.sfx('slam');
-      w.slamWave(this.x + 5 + this.face * 18, this.y + 22, this.face, wp.dmg * this.dmgMul() * 0.7, wp);
-    }
-  } else if (wp.type === 'ranged') {
-    if (!a.fired && p >= 0.3) {
-      a.fired = true;
-      var ay = I.isDown('up') ? -0.55 : (I.isDown('down') && !this.onGround ? 0.55 : 0);
-      var sp = wp.speed, len = Math.sqrt(1 + ay * ay);
-      var arrow = w.spawnProj({
-        x: this.x + 5 + this.face * 8, y: this.y + 10, vx: this.face * sp / len, vy: ay * sp / len, team: 'p',
-        kind: wp.id === 'stormbolt' ? 'bolt' : 'arrow', dmg: wp.dmg * this.dmgMul(), pierce: wp.pierce, kb: wp.kb, w: 6, h: 4, life: 70,
-        wp: wp, grav: wp.id === 'stormbolt' ? 0 : 0.03
-      });
-      this.vx -= this.face * 0.9;
-      w.burst(this.x + 5 + this.face * 10, this.y + 10, wp.color, 4, { vx: 1.2, vy: 0.6, life: 10, size: 1 });
-    }
-  }
-  if (a.t >= a.dur) { this.atk = null; this.atkCd = wp.type === 'melee' ? 0 : 2; }
-};
-Player.prototype.meleeBox = function (a) {
-  var wp = a.wp, f = this.face, reach = wp.reach, cx = this.x + 5;
-  var bw = reach, bh = 26, by = this.y - 1;
-  if (wp.thrust) { bh = 12; by = this.y + 5; bw = reach + 4; }
-  else if (wp.cleave || wp.slam) { bh = 36; by = this.y - 8; bw = reach + 6; }
-  else if (a.combo === 2) { bh = 32; by = this.y - 5; bw = reach + 8; }
-  if (wp.id === 'twinfang') { bh = 20; by = this.y + 2; }
-  var bx = f > 0 ? cx + 2 : cx - 2 - bw;
-  return { x: bx, y: by, w: bw, h: bh };
-};
-
-/* ---------- skills ---------- */
-Player.prototype.useSkill = function (w, i) {
-  var id = this.run.skills[i];
-  if (!id || this.cd[i] > 0 || this.drinkT > 0) { if (id && this.cd[i] > 0) AB.sfx('error'); return; }
-  var sk = AB.SKILLS[id];
-  var ok = AB.skillFx[id](w, this, sk);
-  if (ok === false) return;
-  this.cd[i] = Math.round(sk.cd * (1 - Math.min(0.6, this.s.cdr)));
-  this.cdMax = this.cdMax || [1, 1]; this.cdMax[i] = this.cd[i];
-  this.atk = null;
-};
-
-AB.skillFx = {
-  firebomb: function (w, p, sk) {
-    AB.sfx('shoot');
-    w.spawnProj({ x: p.x + 5 + p.face * 6, y: p.y + 6, vx: p.face * 3.2 + p.vx * 0.4, vy: -3.8, grav: 0.22, team: 'p', kind: 'bomb', dmg: sk.dmg * p.dmgMul(),
-                  w: 7, h: 7, life: 120, bounce: 0.35, fuse: 55, radius: 44, ignite: 1, pierce: 99, noHit: true });
-  },
-  frostnova: function (w, p, sk) {
-    AB.sfx('ice'); w.shake(3);
-    var cx = p.x + 5, cy = p.y + 11;
-    w.ring(cx, cy, 80, '#8ae0ff');
-    w.enemiesNear(cx, cy, 80, function (e) {
-      w.damageEnemy(e, sk.dmg * p.dmgMul(), { kb: 2.5, dir: AB.sign(e.x - p.x) || 1, freeze: 1, src: 'skill', color: '#8ae0ff' });
-    });
-    w.burst(cx, cy, '#cfeeff', 24, { vx: 3, vy: 3, life: 30, size: 2 });
-    w.deflectProj(cx, cy, 80);
-  },
-  turret: function (w, p, sk) {
-    AB.sfx('pickup');
-    var t = new Turret(p.x + 5 + p.face * 14, p.y + 22, sk.dmg * p.dmgMul(), p.run.turretLife || 480);
-    w.allies.push(t);
-    w.burst(t.x, t.y - 6, '#9aff9a', 10, { vx: 1.5, vy: 1.5, life: 24, size: 2 });
-  },
-  chainbolt: function (w, p, sk) {
-    var cx = p.x + 5, cy = p.y + 8, hits = [], seen = [];
-    var cur = { x: cx, y: cy };
-    for (var i = 0; i < 5; i++) {
-      var best = null, bd = 150;
-      for (var k = 0; k < w.enemies.length; k++) {
-        var e = w.enemies[k]; if (e.dead || seen.indexOf(e) >= 0) continue;
-        var d = AB.dist(cur.x, cur.y, e.x + e.w / 2, e.y + e.h / 2);
-        if (d < bd) { bd = d; best = e; }
-      }
-      if (!best) break;
-      seen.push(best); hits.push(best); cur = { x: best.x + best.w / 2, y: best.y + best.h / 2 };
-    }
-    if (!hits.length) { AB.sfx('error'); return false; }
-    AB.sfx('zap'); w.shake(3);
-    var pts = [{ x: cx, y: cy }];
-    for (var j = 0; j < hits.length; j++) {
-      var h = hits[j];
-      pts.push({ x: h.x + h.w / 2, y: h.y + h.h / 2 });
-      w.damageEnemy(h, sk.dmg * p.dmgMul() * (1 - j * 0.08), { kb: 1.5, dir: AB.sign(h.x - p.x) || 1, src: 'skill', color: '#ffe84a', stun: 20 });
-    }
-    w.bolts.push({ pts: pts, t: 14 });
-  },
-  warcry: function (w, p, sk) {
-    AB.sfx('warcry'); w.shake(6); p.buffT = 360;
-    w.ring(p.x + 5, p.y + 11, 70, '#ff5a5a');
-    w.enemiesNear(p.x + 5, p.y + 11, 70, function (e) {
-      w.damageEnemy(e, sk.dmg * p.dmgMul(), { kb: 6, dir: AB.sign(e.x - p.x) || 1, src: 'skill', color: '#ff5a5a', stun: 30 });
-    });
-    w.deflectProj(p.x + 5, p.y + 11, 70);
-    w.burst(p.x + 5, p.y + 11, '#ff7a5a', 22, { vx: 3, vy: 2, life: 28, size: 2 });
-  },
-  shadowstep: function (w, p, sk) {
-    AB.sfx('roll');
-    var dir = p.face, dist = 0, ox = p.x;
-    var box = { x: p.x, y: p.y, w: p.w, h: p.h };
-    for (var i = 0; i < 12; i++) {
-      var nx = box.x + dir * 8;
-      var tx = Math.floor((dir > 0 ? nx + box.w : nx) / T), blocked = false;
-      for (var ty = Math.floor(box.y / T); ty <= Math.floor((box.y + box.h - 1) / T); ty++) if (w.level.solidAt(tx, ty)) blocked = true;
-      if (blocked) break;
-      box.x = nx; dist += 8;
-      w.burst(box.x + 5, box.y + 11, '#b08aff', 2, { vx: 0.3, vy: 0.3, life: 20, size: 3 });
-    }
-    var hb = { x: Math.min(ox, box.x) - 4, y: p.y - 4, w: Math.abs(box.x - ox) + 18, h: 30 };
-    for (var k = 0; k < w.enemies.length; k++) {
-      var e = w.enemies[k];
-      if (!e.dead && AB.overlap(hb, e)) w.damageEnemy(e, sk.dmg * p.dmgMul(), { kb: 3, dir: dir, src: 'skill', color: '#b08aff', stun: 20 });
-    }
-    p.x = box.x; p.iframes = Math.max(p.iframes, 20); p.vx = dir * 1.2;
-  }
-};
-
-/* ===================== PROJECTILES ===================== */
-function Proj(o) {
-  this.x = o.x; this.y = o.y; this.vx = o.vx || 0; this.vy = o.vy || 0;
-  this.w = o.w || 6; this.h = o.h || 6; this.team = o.team; this.kind = o.kind || 'orb';
-  this.dmg = o.dmg || 1; this.life = o.life || 120; this.pierce = o.pierce || 0; this.grav = o.grav || 0;
-  this.kb = o.kb === undefined ? 2 : o.kb; this.wp = o.wp; this.hit = [];
-  this.bounce = o.bounce || 0; this.fuse = o.fuse || 0; this.radius = o.radius || 0; this.ignite = o.ignite || 0;
-  this.small = o.small !== false && this.team === 'e'; this.dead = false; this.t = 0;
-  this.color = o.color || null; this.noHit = !!o.noHit; this.homing = o.homing || 0; this.spin = 0;
-  this.status = o.status || null; this.reflected = false;
+function moveFly(e, w) {
+  var L = w.level, nx = e.x + e.vx, ny = e.y + e.vy;
+  var cx = Math.floor((nx + e.w / 2) / T), cy = Math.floor((e.y + e.h / 2) / T);
+  if (L.solidAt(cx, cy)) { e.vx = -e.vx * 0.5; } else e.x = nx;
+  cx = Math.floor((e.x + e.w / 2) / T); cy = Math.floor((ny + e.h / 2) / T);
+  if (L.solidAt(cx, cy)) { e.vy = -e.vy * 0.5; } else e.y = ny;
 }
-AB.Proj = Proj;
-var PCOL = { arrow: '#e8c070', bolt: '#7ad8ff', orb: '#c070ff', fire: '#ff8a3a', bomb: '#ff8a3a', bone: '#e8e0d0', shard: '#9ae8ff', needle: '#ff5a5a', ember: '#ffb04a', laser: '#ff4a6a' };
-Proj.prototype.col = function () { return this.color || PCOL[this.kind] || '#fff'; };
+AB.moveFly = moveFly;
+function pdx(e, w) { return (w.player.x + 5) - (e.x + e.w / 2); }
+function pdy(e, w) { return (w.player.y + 11) - (e.y + e.h / 2); }
+AB.pdx = pdx; AB.pdy = pdy;
+function face(e, w) { var d = pdx(e, w); if (Math.abs(d) > 2) e.face = d > 0 ? 1 : -1; }
+function walk(e, w, dir, sp) {
+  sp *= e.spd * (e.slow > 0 ? 0.5 : 1);
+  if (e.onGround) { if (Math.abs(e.vx) < sp * 1.3) e.vx = dir * sp; } else e.vx += dir * 0.05;
+  e.vy = Math.min(e.vy + 0.4, 8); AB.moveBody(e, w.level);
+}
+function stand(e, w) { e.vy = Math.min(e.vy + 0.4, 8); AB.moveBody(e, w.level); if (e.onGround) e.vx *= 0.75; }
+function atkBox(e, reach, h, yoff) { return { x: e.face > 0 ? e.x + e.w - 2 : e.x - reach + 2, y: e.y + (yoff || 2), w: reach, h: h }; }
+function canSee(e, w, range) {
+  var dx = Math.abs(pdx(e, w)), dy = Math.abs(pdy(e, w));
+  return dx < range && dy < 70 && !w.player.dead;
+}
+function patrol(e, w, sp) {
+  if (!AB.floorAhead(e, w.level, e.dir, 4) || AB.wallAhead(e, w.level, e.dir) || Math.abs(e.x - e.home) > 90) { e.dir = -e.dir; if (Math.abs(e.x - e.home) > 90) e.dir = e.x > e.home ? -1 : 1; }
+  e.face = e.dir; walk(e, w, e.dir, sp * 0.6);
+}
+AB.eh = { pdx: pdx, pdy: pdy, face: face, walk: walk, stand: stand, atkBox: atkBox, canSee: canSee, patrol: patrol };
 
-Proj.prototype.update = function (w) {
-  this.t++;
-  if (this.net) {   // online: an enemy projectile mirrored from the host, it only moves and animates here
-    this.vy += this.grav; this.x += this.vx; this.y += this.vy; this.spin += 0.3;
-    if (--this.life <= 0) this.dead = true;
-    return;
+/* ---- shared drawing helpers ---- */
+function begin(e, c, cx, cy, t) {
+  var x = Math.round(e.x + e.w / 2 - cx), y = Math.round(e.y + e.h - cy);
+  c.save();
+  if (e.spawnT > 0) c.globalAlpha = 1 - e.spawnT / 36 * 0.85;
+  else if (e.alpha < 1) c.globalAlpha = e.alpha;
+  return { x: x, y: y };
+}
+function colorFn(e) {
+  var fl = e.flash > 0, fz = e.freezeT > 0;
+  return function (col) { return fl ? '#ffffff' : (fz ? AB.mix(col, '#9ad8ff', 0.55) : col); };
+}
+function tele(c, e, x, y) {
+  if (!e.tele) return;
+  var b = Math.sin(e.t * 0.5) * 1.5;
+  R(c, '#1a0000', x - 2, y - e.h - 14 + b, 5, 9); R(c, '#ff3a2a', x - 1, y - e.h - 13 + b, 3, 5); R(c, '#ff3a2a', x - 1, y - e.h - 6 + b, 3, 2);
+  AB.glow(c, x, y - e.h - 8, 14, '#ff3a2a', 0.6);
+}
+function finish(e, c, x, y, t) {
+  if (e.elite) {
+    var ec = e.elite === 'frenzied' ? '#ff4a4a' : (e.elite === 'armored' ? '#8ab0ff' : '#ff9a2a');
+    AB.glow(c, x, y - e.h / 2, e.w + 16, ec, 0.45 + Math.sin(t * 0.2) * 0.12);
+    R(c, ec, x - 2, y - e.h - 8, 4, 4); R(c, '#fff', x - 1, y - e.h - 7, 2, 1);
   }
-  var hp = this.homing ? w.nearestPlayer(this.x, this.y) : null;
-  if (hp && !hp.dead) {
-    var dx = hp.x + 5 - this.x, dy = hp.y + 10 - this.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
-    var sp = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
-    this.vx += dx / d * this.homing; this.vy += dy / d * this.homing;
-    var ns = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
-    this.vx = this.vx / ns * sp; this.vy = this.vy / ns * sp;
+  if (e.burn > 0) AB.glow(c, x, y - e.h / 2, e.w + 10, '#ff8a2a', 0.5);
+  if (e.freezeT > 0) { c.globalAlpha = 0.5; R(c, '#bfe8ff', x - e.w / 2 - 1, y - e.h, e.w + 2, e.h); c.globalAlpha = 1; R(c, '#fff', x - e.w / 2, y - e.h, 2, e.h * 0.4); }
+  tele(c, e, x, y);
+  if (!e.boss && e.t > 0 && e.hp < e.maxHp && e.hp > 0 && (e.lastHit > 0)) {
+    var show = (t - (e.lastHit || 0)) < 150 || e.elite;
+    if (show) { var bw = Math.max(14, e.w + 4); AB.bar(c, x - bw / 2, y - e.h - 5, bw, 2, e.hp, e.maxHp, e.elite ? '#ff9a4a' : '#d83a4a'); }
   }
-  this.vy += this.grav;
-  this.x += this.vx; this.y += this.vy;
-  this.spin += 0.3;
-  if (--this.life <= 0) { this.die(w, false); return; }
-  if (this.kind === 'bomb' && this.fuse > 0 && --this.fuse <= 0) { this.die(w, true); return; }
-  // world collision
-  var tx = Math.floor((this.x + this.w / 2) / T), ty = Math.floor((this.y + this.h / 2) / T);
-  if (w.level.solidAt(tx, ty)) {
-    if (this.bounce) {
-      var up = !w.level.solidAt(tx, Math.floor((this.y + this.h / 2 - this.vy) / T));
-      if (up) { this.y -= this.vy; this.vy *= -this.bounce; this.vx *= 0.7; } else { this.x -= this.vx; this.vx *= -this.bounce; }
-    } else { this.die(w, true); return; }
+  c.restore();
+}
+// ground shadow
+function shadow(c, x, y, wd) { c.globalAlpha = 0.25; R(c, '#000', x - wd / 2, y - 1, wd, 2); c.globalAlpha = 1; }
+
+/* ===================== HUSK ===================== */
+E.husk = {
+  name: 'Husk', w: 12, h: 20, hp: 44, dmg: 13, gold: 4,
+  update: function (e, w) {
+    var p = w.player, dx = pdx(e, w), adx = Math.abs(dx);
+    e.st++;
+    if (e.state === 'idle' || e.state === 'chase') {
+      if (canSee(e, w, 170)) {
+        e.state = 'chase'; face(e, w);
+        if (adx > 22) {
+          if (AB.floorAhead(e, w.level, e.face, 6) && !AB.wallAhead(e, w.level, e.face)) walk(e, w, e.face, 0.9); else stand(e, w);
+          if (AB.wallAhead(e, w.level, e.face) && e.onGround && e.st % 40 === 0) e.vy = -5.2;
+        } else { e.state = 'windup'; e.st = 0; e.tele = true; stand(e, w); }
+      } else { e.state = 'idle'; patrol(e, w, 0.8); }
+    } else if (e.state === 'windup') {
+      stand(e, w);
+      if (e.st >= Math.round(24 * e.atkMul)) { e.state = 'strike'; e.st = 0; e.tele = false; e.vx = e.face * 1.8; AB.sfx('swing'); }
+    } else if (e.state === 'strike') {
+      stand(e, w);
+      if (e.st < 8) { var box = atkBox(e, 22, 16, 3); if (AB.overlap(box, p) && !e.hitDone) { if (w.hurtPlayer(e.dmg, e.x + e.w / 2, {}) !== 'ignored') e.hitDone = true; } }
+      if (e.st > 18) { e.state = 'recover'; e.st = 0; e.hitDone = false; }
+    } else if (e.state === 'recover') { stand(e, w); if (e.st > 24 * e.atkMul) { e.state = 'chase'; e.st = 0; } }
+  },
+  draw: function (e, c, cx, cy, t) {
+    var o = begin(e, c, cx, cy, t), K = colorFn(e), P = e.pal;
+    shadow(c, o.x, o.y, 14);
+    c.translate(o.x, o.y); c.scale(e.face, 1);
+    var moving = Math.abs(e.vx) > 0.2 && e.onGround, ph = e.t * 0.2, sw = moving ? Math.round(Math.sin(ph) * 3) : 0;
+    var wind = e.state === 'windup', strike = e.state === 'strike';
+    R(c, K(P.dark), -4 + sw, -8, 3, 8); R(c, K(P.dark), 1 - sw, -8, 3, 8);
+    R(c, K(P.cloth), -5, -16, 10, 10); R(c, K('#00000033'), -5, -9, 10, 3);
+    R(c, K(P.skin), -3, -20 + (moving ? Math.round(Math.sin(ph * 2)) : 0), 7, 6);
+    R(c, K(P.dark), 1, -19, 3, 2); R(c, K(P.glow), 2, -18, 2, 1);
+    R(c, K(P.cloth), -2, -14, 2, 5);
+    // arms
+    var ay = wind ? -22 : (strike ? -8 : -13), ax = strike ? 10 : 5;
+    R(c, K(P.skin), 3, ay, ax - 2, 3); R(c, K(P.dark), ax, ay - 1, 3, 5);
+    if (strike && e.st < 8) { c.globalAlpha = 0.5; R(c, '#fff', 8, -14, 14, 2); c.globalAlpha = 1; }
+    finish(e, c, 0, 0, t);
+    c.setTransform(1, 0, 0, 1, 0, 0);
   }
-  if (this.kind === 'bomb' || this.noHit) { if (this.kind !== 'bomb') {} else {
-    // bombs detonate on enemy contact
-    for (var q = 0; q < w.enemies.length; q++) { var en = w.enemies[q]; if (!en.dead && AB.overlap(this, en)) { this.die(w, true); return; } }
-    return; } }
-  if (this.team === 'p' && this.ghost) return;   // a teammate's arrow: look only, their screen did the hitting
-  if (this.team === 'p') {
-    for (var i = 0; i < w.enemies.length; i++) {
-      var e = w.enemies[i];
-      if (e.dead || this.hit.indexOf(e) >= 0 || !AB.overlap(this, e)) continue;
-      this.hit.push(e);
-      var dir = AB.sign(this.vx) || 1;
-      w.playerHit(e, this.dmg, { kb: this.kb, dir: dir, wp: this.wp, src: 'proj', color: this.col(), fromX: this.x - this.vx * 2, ranged: true });
-      if (this.pierce-- <= 0) { this.die(w, false); return; }
-    }
-    w.hitProps(this);
-  } else {
-    var ps = w.allPlayers(), keep = w.player;
-    for (var pi = 0; pi < ps.length; pi++) {
-      var p = ps[pi];
-      if (p && !p.dead && AB.overlap(this, p)) {
-        w.player = p;
-        var res = w.hurtPlayer(this.dmg, this.x, { proj: this, status: this.status });
-        w.player = keep;
-        if (res === 'parried') return;
-        if (res !== 'ignored' || !this.small) this.die(w, false);
-        break;
+};
+
+/* ===================== ARCHER ===================== */
+E.archer = {
+  name: 'Bonewright', w: 12, h: 22, hp: 30, dmg: 11, gold: 5,
+  update: function (e, w) {
+    var p = w.player, dx = pdx(e, w), adx = Math.abs(dx);
+    e.st++;
+    if (e.state === 'idle' || e.state === 'chase') {
+      if (canSee(e, w, 230)) {
+        face(e, w); e.state = 'chase';
+        if (adx < 80 && AB.floorAhead(e, w.level, -e.face, 6) && !AB.wallAhead(e, w.level, -e.face)) walk(e, w, -e.face, 1.1);
+        else if (adx > 160 && AB.floorAhead(e, w.level, e.face, 6)) walk(e, w, e.face, 0.8);
+        else stand(e, w);
+        if (adx < 40 && e.onGround && e.st % 50 === 0) { e.vy = -5; e.vx = -e.face * 2.2; }
+        if (e.st > 70 * e.atkMul) { e.state = 'windup'; e.st = 0; e.tele = true; }
+      } else { e.state = 'idle'; patrol(e, w, 0.6); }
+    } else if (e.state === 'windup') {
+      stand(e, w); face(e, w);
+      if (e.st >= 26 * e.atkMul) {
+        e.tele = false;
+        var ox = e.x + e.w / 2 + e.face * 8, oy = e.y + 9, tx = w.player.x + 5, ty = w.player.y + 10;
+        var d = Math.sqrt((tx - ox) * (tx - ox) + (ty - oy) * (ty - oy)) || 1, sp = 3.4;
+        w.spawnProj({ x: ox, y: oy, vx: (tx - ox) / d * sp, vy: (ty - oy) / d * sp - 0.2, grav: 0.02, team: 'e', kind: 'arrow', dmg: e.dmg, w: 8, h: 4, life: 130, kb: 1 });
+        AB.sfx('bow'); e.state = 'recover'; e.st = 0; e.vx = -e.face * 1;
       }
-    }
-  }
-};
-Proj.prototype.die = function (w, hitWorld) {
-  if (this.dead) return; this.dead = true;
-  if (this.kind === 'bomb') {
-    w.explode(this.x + this.w / 2, this.y + this.h / 2, this.radius || 40, this.dmg, this.team, { ignite: this.ignite, color: this.col() });
-  } else if (hitWorld || this.team === 'e') {
-    w.burst(this.x, this.y, this.col(), 5, { vx: 1.5, vy: 1.5, life: 12, size: 1 });
-  }
-};
-Proj.prototype.draw = function (c, cx, cy, t) {
-  var x = Math.round(this.x - cx), y = Math.round(this.y - cy), col = this.col();
-  switch (this.kind) {
-    case 'arrow': {
-      var ang = Math.atan2(this.vy, this.vx);
-      c.save(); c.translate(x + 3, y + 2); c.rotate(ang);
-      c.fillStyle = '#c8b090'; c.fillRect(-8, -1, 14, 2); c.fillStyle = '#fff'; c.fillRect(4, -1, 4, 2);
-      c.fillStyle = '#ddd'; c.fillRect(-9, -2, 3, 1); c.fillRect(-9, 1, 3, 1);
-      c.restore(); break; }
-    case 'bolt': {
-      var a2 = Math.atan2(this.vy, this.vx);
-      c.save(); c.translate(x + 3, y + 2); c.rotate(a2);
-      c.fillStyle = col; c.fillRect(-12, -2, 18, 4); c.fillStyle = '#fff'; c.fillRect(-8, -1, 16, 2); c.restore();
-      AB.glow(c, x + 3, y + 2, 16, col, 0.7); break; }
-    case 'bomb':
-      c.fillStyle = '#1a1420'; c.fillRect(x, y, 7, 7); c.fillStyle = col; c.fillRect(x + 1, y + 1, 5, 5);
-      c.fillStyle = (t >> 2) & 1 ? '#fff' : '#ffb04a'; c.fillRect(x + 3, y - 2, 2, 2);
-      AB.glow(c, x + 3, y + 3, 14, col, 0.6); break;
-    case 'bone':
-      c.save(); c.translate(x + 3, y + 3); c.rotate(this.spin);
-      c.fillStyle = '#e8e0d0'; c.fillRect(-5, -1, 10, 2); c.fillRect(-5, -2, 2, 4); c.fillRect(3, -2, 2, 4); c.restore(); break;
-    case 'shard': {
-      var a3 = Math.atan2(this.vy, this.vx);
-      c.save(); c.translate(x + 3, y + 3); c.rotate(a3);
-      c.fillStyle = col; c.fillRect(-6, -2, 12, 4); c.fillStyle = '#fff'; c.fillRect(0, -1, 7, 2); c.restore();
-      AB.glow(c, x + 3, y + 3, 10, col, 0.5); break; }
-    case 'laser':
-      c.fillStyle = col; c.fillRect(x - 2, y - 1, 10, 6); c.fillStyle = '#fff'; c.fillRect(x, y + 1, 6, 2);
-      AB.glow(c, x + 3, y + 3, 14, col, 0.6); break;
-    default: { // orb / fire / ember / needle
-      var r = this.kind === 'fire' ? 5 : 4, pul = 1 + Math.sin(t * 0.4 + this.x) * 0.5;
-      c.fillStyle = col; c.fillRect(x + 3 - r, y + 3 - r + 1, r * 2, r * 2 - 2); c.fillRect(x + 3 - r + 1, y + 3 - r, r * 2 - 2, r * 2);
-      c.fillStyle = '#fff'; c.fillRect(x + 2, y + 2, 2, 2);
-      AB.glow(c, x + 3, y + 3, 14 + pul * 3, col, 0.7);
-    }
+    } else if (e.state === 'recover') { stand(e, w); if (e.st > 18) { e.state = 'chase'; e.st = 0; } }
+  },
+  draw: function (e, c, cx, cy, t) {
+    var o = begin(e, c, cx, cy, t), K = colorFn(e), P = e.pal;
+    shadow(c, o.x, o.y, 14);
+    c.translate(o.x, o.y); c.scale(e.face, 1);
+    var moving = Math.abs(e.vx) > 0.2 && e.onGround, ph = e.t * 0.25, sw = moving ? Math.round(Math.sin(ph) * 3) : 0;
+    R(c, K(P.bone), -3 + sw, -9, 2, 9); R(c, K(P.bone), 1 - sw, -9, 2, 9);
+    R(c, K(P.dark), -4, -11, 8, 3);
+    for (var i = 0; i < 3; i++) { R(c, K(P.bone), -3, -17 + i * 2, 7, 1); }
+    R(c, K(P.dark), -1, -17, 1, 7);
+    R(c, K(P.bone), -3, -23, 7, 6); R(c, K(P.dark), 0, -21, 4, 2); R(c, K(P.glow), 2, -21, 1, 1);
+    var draw = e.state === 'windup' ? Math.min(1, e.st / 26) : 0;
+    c.save(); c.translate(5, -14); AB.drawIcon(c, 'bow', -4, -8, 1, P.glow); c.restore();
+    R(c, K(P.bone), 2, -15, 4, 2);
+    if (e.state === 'windup') { R(c, P.glow, 4 + 4 * draw, -14, 8 - 4 * draw, 1); }
+    finish(e, c, 0, 0, t);
+    c.setTransform(1, 0, 0, 1, 0, 0);
   }
 };
 
-/* ===================== ALLY TURRET ===================== */
-function Turret(x, y, dmg, life) { this.x = x; this.y = y; this.dmg = dmg; this.life = life; this.cd = 20; this.face = 1; this.t = 0; this.dead = false; }
-Turret.prototype.update = function (w) {
-  this.t++; if (--this.life <= 0) { this.dead = true; w.burst(this.x, this.y - 6, '#9aff9a', 8, { life: 20, size: 2 }); return; }
-  if (--this.cd > 0) return;
-  var best = null, bd = 190;
-  for (var i = 0; i < w.enemies.length; i++) {
-    var e = w.enemies[i]; if (e.dead) continue;
-    var d = AB.dist(this.x, this.y - 8, e.x + e.w / 2, e.y + e.h / 2);
-    if (d < bd) { bd = d; best = e; }
+/* ===================== BAT ===================== */
+E.bat = {
+  name: 'Cinderbat', w: 14, h: 10, hp: 20, dmg: 10, gold: 3, fly: true, kbRes: 0.2,
+  init: function (e) { e.home = e.x; e.homeY = e.y; e.ph = Math.random() * 6; },
+  update: function (e, w) {
+    var p = w.player, dx = pdx(e, w), dy = pdy(e, w), d = Math.sqrt(dx * dx + dy * dy);
+    e.st++;
+    if (e.state === 'idle') {
+      e.vx = Math.cos(e.t * 0.03 + e.ph) * 0.4; e.vy = Math.sin(e.t * 0.06 + e.ph) * 0.4; moveFly(e, w);
+      if (d < 190 && !p.dead) { e.state = 'hover'; e.st = 0; }
+    } else if (e.state === 'hover') {
+      var tx = p.x + 5 + (e.aux.side || 1) * 60, ty = p.y - 42;
+      if (e.st === 1) e.aux.side = AB.chance(0.5) ? 1 : -1;
+      e.vx += (tx - (e.x + 7)) * 0.003 * e.spd; e.vy += (ty - (e.y + 5)) * 0.004 * e.spd; e.vx *= 0.94; e.vy *= 0.94;
+      e.face = dx > 0 ? 1 : -1; moveFly(e, w);
+      if (e.st > 55 * e.atkMul) { e.state = 'windup'; e.st = 0; e.tele = true; e.vx = 0; e.vy = -0.6; }
+    } else if (e.state === 'windup') {
+      e.vx *= 0.8; e.vy *= 0.9; moveFly(e, w);
+      if (e.st >= 18) {
+        e.tele = false; e.state = 'dive'; e.st = 0;
+        var sp = 3.6 * e.spd; e.vx = dx / (d || 1) * sp; e.vy = dy / (d || 1) * sp; e.face = e.vx > 0 ? 1 : -1; AB.sfx('swing');
+      }
+    } else if (e.state === 'dive') {
+      var ox = e.x, oy = e.y; moveFly(e, w);
+      if (AB.overlap(e, p) && !e.hitDone) { if (w.hurtPlayer(e.dmg, e.x + 7, {}) !== 'ignored') e.hitDone = true; }
+      if ((e.vx === 0 || e.vy === 0 || e.st > 38) || (ox === e.x && oy === e.y)) { e.state = 'retreat'; e.st = 0; e.hitDone = false; }
+    } else if (e.state === 'retreat') {
+      e.vy += -0.05; e.vx *= 0.95; e.vy *= 0.96; moveFly(e, w);
+      if (e.st > 40) { e.state = 'hover'; e.st = 0; }
+    } else { e.state = 'idle'; }
+    e.wing = (e.wing || 0) + (e.state === 'dive' ? 0.6 : 0.35);
+  },
+  draw: function (e, c, cx, cy, t) {
+    var o = begin(e, c, cx, cy, t), K = colorFn(e), P = e.pal;
+    c.translate(o.x, o.y - 5); c.scale(e.face, 1);
+    var fl = Math.sin(e.wing || 0) * 5;
+    R(c, K(P.dark), -9, -2 + fl, 7, 2); R(c, K(P.cloth), -11, 0 + fl, 8, 2); R(c, K(P.dark), -12, 2 + fl * 0.6, 5, 2);
+    R(c, K(P.dark), 2, -2 + fl, 7, 2); R(c, K(P.cloth), 4, 0 + fl, 8, 2);
+    R(c, K(P.dark), -4, -4, 9, 9); R(c, K(P.cloth), -3, -3, 7, 7);
+    R(c, K(P.dark), -3, -6, 2, 3); R(c, K(P.dark), 2, -6, 2, 3);
+    R(c, K(P.glow), 1, -1, 2, 2);
+    AB.glow(c, 2, 0, 10, P.glow, 0.4);
+    var yy = -(e.h / 2 - 5);
+    c.translate(0, 5);
+    finish(e, c, 0, 0, t);
+    c.setTransform(1, 0, 0, 1, 0, 0);
   }
-  if (best) {
-    var dx = best.x + best.w / 2 - this.x, dy = best.y + best.h / 2 - (this.y - 8), d2 = Math.sqrt(dx * dx + dy * dy) || 1;
-    this.face = dx >= 0 ? 1 : -1;
-    w.spawnProj({ x: this.x - 3, y: this.y - 11, vx: dx / d2 * 6, vy: dy / d2 * 6, team: 'p', kind: 'bolt', dmg: this.dmg, w: 5, h: 4, life: 40, pierce: 0, kb: 0.8, color: '#9aff9a' });
-    AB.sfx('shoot'); this.cd = 22;
-  } else this.cd = 6;
 };
-Turret.prototype.draw = function (c, cx, cy, t) {
-  var x = Math.round(this.x - cx), y = Math.round(this.y - cy);
-  c.fillStyle = '#1a1420'; c.fillRect(x - 7, y - 6, 14, 6); c.fillStyle = '#6a6a7a'; c.fillRect(x - 6, y - 5, 12, 4);
-  c.fillStyle = '#1a1420'; c.fillRect(x - 5, y - 14, 10, 9); c.fillStyle = '#9aff9a'; c.fillRect(x - 4, y - 13, 8, 7);
-  c.fillStyle = '#1a1420'; c.fillRect(this.face > 0 ? x + 3 : x - 11, y - 11, 8, 3);
-  c.fillStyle = '#fff'; c.fillRect(x - 1 + this.face * 2, y - 11, 2, 2);
-  AB.glow(c, x, y - 9, 18, '#9aff9a', 0.35 + Math.sin(t * 0.2) * 0.1);
-  if (this.life < 90 && (t >> 2) & 1) { c.fillStyle = 'rgba(0,0,0,0.5)'; c.fillRect(x - 5, y - 14, 10, 9); }
+
+/* ===================== BRUTE ===================== */
+E.brute = {
+  name: 'Ironhide', w: 20, h: 30, hp: 150, dmg: 26, gold: 12, kbRes: 0.8, superArmor: true,
+  mitigate: function (e, dmg, o, w) {
+    // shield on the front; vulnerable while winding up/recovering
+    var front = o.dir === -e.face;
+    if (front && e.state !== 'strike' && e.state !== 'recover' && !(e.stun > 0)) {
+      AB.sfx('block'); w.burst(e.x + (e.face > 0 ? e.w : 0), e.y + 12, '#ffffff', 6, { vx: 2, vy: 2, life: 10, size: 1, g: 0 });
+      w.text(e.x + e.w / 2, e.y - 4, 'BLOCK', '#9ab0d0');
+      return dmg * 0.2;
+    }
+    return dmg;
+  },
+  update: function (e, w) {
+    var p = w.player, dx = pdx(e, w), adx = Math.abs(dx);
+    e.st++;
+    if (e.state === 'idle' || e.state === 'chase') {
+      if (canSee(e, w, 200)) {
+        e.state = 'chase'; face(e, w);
+        if (adx > 34) { if (AB.floorAhead(e, w.level, e.face, 6) && !AB.wallAhead(e, w.level, e.face)) walk(e, w, e.face, 0.55); else stand(e, w); }
+        else { e.state = 'windup'; e.st = 0; e.tele = true; stand(e, w); }
+      } else { e.state = 'idle'; patrol(e, w, 0.5); }
+    } else if (e.state === 'windup') {
+      stand(e, w);
+      if (e.st >= 46 * e.atkMul) { e.state = 'strike'; e.st = 0; e.tele = false; w.shake(4); AB.sfx('slam'); w.dust(e.x + e.w / 2 + e.face * 24, e.y + e.h, 8); }
+    } else if (e.state === 'strike') {
+      stand(e, w);
+      if (e.st < 8) { var box = atkBox(e, 40, 24, 6); if (AB.overlap(box, p) && !e.hitDone) { if (w.hurtPlayer(e.dmg, e.x + e.w / 2, {}) !== 'ignored') e.hitDone = true; } }
+      if (e.st > 14) { e.state = 'recover'; e.st = 0; e.hitDone = false; }
+    } else if (e.state === 'recover') { stand(e, w); if (e.st > 46 * e.atkMul) { e.state = 'chase'; e.st = 0; } }
+  },
+  draw: function (e, c, cx, cy, t) {
+    var o = begin(e, c, cx, cy, t), K = colorFn(e), P = e.pal;
+    shadow(c, o.x, o.y, 24);
+    c.translate(o.x, o.y); c.scale(e.face, 1);
+    var moving = Math.abs(e.vx) > 0.2, sw = moving ? Math.round(Math.sin(e.t * 0.14) * 2) : 0;
+    R(c, K(P.dark), -7 + sw, -10, 5, 10); R(c, K(P.dark), 2 - sw, -10, 5, 10);
+    R(c, K('#2a2838'), -9, -22, 18, 14); R(c, K('#4a4860'), -8, -21, 16, 12); R(c, K('#6a6888'), -8, -21, 16, 2);
+    R(c, K(P.cloth), -8, -11, 16, 4);
+    R(c, K('#2a2838'), -6, -30, 12, 10); R(c, K('#5a5878'), -5, -29, 10, 8); R(c, K(P.dark), 0, -26, 5, 2); R(c, K(P.glow), 3, -26, 2, 1);
+    var wind = e.state === 'windup', strike = e.state === 'strike';
+    var pr = wind ? Math.min(1, e.st / 46) : 0;
+    // hammer
+    c.save(); c.translate(6, -18);
+    c.rotate(wind ? (-100 + (-10 * pr)) * Math.PI / 180 : (strike ? 70 * Math.PI / 180 : -20 * Math.PI / 180));
+    AB.drawIcon(c, 'hammer', -8, -14, 1.3, P.glow); c.restore();
+    // tower shield (front)
+    var up = wind ? -3 : 0;
+    R(c, K('#1a1420'), 6, -26 + up, 8, 22); R(c, K('#7a7898'), 7, -25 + up, 6, 20); R(c, K('#aab0c8'), 7, -25 + up, 2, 20); R(c, K(P.glow), 9, -17 + up, 2, 4);
+    finish(e, c, 0, 0, t);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  }
 };
-AB.Turret = Turret;
+
+/* ===================== HEXER ===================== */
+E.hexer = {
+  name: 'Hexer', w: 12, h: 24, hp: 36, dmg: 15, gold: 8,
+  init: function (e) { e.aux.tp = 120; e.aux.cast = 0; },
+  update: function (e, w) {
+    var p = w.player, dx = pdx(e, w), adx = Math.abs(dx);
+    e.st++;
+    if (e.state === 'idle') {
+      stand(e, w); if (canSee(e, w, 260)) { e.state = 'chase'; e.st = 0; }
+      e.face = e.dir;
+    } else if (e.state === 'chase') {
+      face(e, w);
+      if (adx < 70 && AB.floorAhead(e, w.level, -e.face, 6)) walk(e, w, -e.face, 0.8); else stand(e, w);
+      if (--e.aux.tp <= 0 || (e.lastHit > w.t - 4)) { e.state = 'fade'; e.st = 0; }
+      else if (e.st > 66 * e.atkMul) { e.state = 'windup'; e.st = 0; e.tele = true; e.aux.cast++; }
+    } else if (e.state === 'windup') {
+      stand(e, w); face(e, w);
+      if (e.st >= 32 * e.atkMul) {
+        e.tele = false;
+        var n = e.aux.cast % 3 === 0 ? 3 : 1;
+        for (var i = 0; i < n; i++) {
+          var ang = (i - (n - 1) / 2) * 0.35, sp = 2.1;
+          var bx = Math.cos(ang) * e.face, by = Math.sin(ang) - 0.1;
+          w.spawnProj({ x: e.x + e.w / 2 + e.face * 8, y: e.y + 8, vx: bx * sp, vy: by * sp, team: 'e', kind: 'orb', dmg: e.dmg, w: 8, h: 8, life: 170, homing: 0.05, color: e.pal.glow, kb: 1.5 });
+        }
+        AB.sfx('fire'); e.state = 'recover'; e.st = 0;
+      }
+    } else if (e.state === 'recover') { stand(e, w); if (e.st > 24) { e.state = 'chase'; e.st = 0; } }
+    else if (e.state === 'fade') {
+      stand(e, w); e.alpha = Math.max(0, 1 - e.st / 12);
+      if (e.st === 1) w.burst(e.x + 6, e.y + 12, e.pal.glow, 10, { life: 16, size: 2, glow: true });
+      if (e.st >= 12) {
+        // relocate near the player on solid ground
+        for (var tries = 0; tries < 12; tries++) {
+          var nx = p.x + 5 + AB.rand(70, 160) * (AB.chance(0.5) ? 1 : -1), g = w.level.groundBelow(nx, p.y - 50, 20);
+          if (g !== null && !w.level.solidAt(Math.floor(nx / T), Math.floor((g - 20) / T)) && Math.abs(g - (p.y + 22)) < 70) { e.x = nx - e.w / 2; e.y = g - e.h; break; }
+        }
+        e.state = 'appear'; e.st = 0; e.aux.tp = AB.randi(150, 260); e.vx = 0; e.vy = 0;
+        w.burst(e.x + 6, e.y + 12, e.pal.glow, 10, { life: 16, size: 2, glow: true });
+      }
+    } else if (e.state === 'appear') {
+      stand(e, w); e.alpha = Math.min(1, e.st / 12); face(e, w);
+      if (e.st >= 12) { e.alpha = 1; e.state = 'chase'; e.st = 40; }
+    } else e.state = 'idle';
+  },
+  draw: function (e, c, cx, cy, t) {
+    var o = begin(e, c, cx, cy, t), K = colorFn(e), P = e.pal;
+    var hov = Math.round(Math.sin(e.t * 0.1) * 1.5);
+    shadow(c, o.x, o.y, 12);
+    c.translate(o.x, o.y - 2 + hov); c.scale(e.face, 1);
+    R(c, K(P.dark), -6, -16, 12, 16); R(c, K(P.cloth), -5, -15, 10, 14); R(c, K('#00000033'), -5, -6, 10, 6);
+    R(c, K(P.dark), -5, -24, 10, 9); R(c, K(P.cloth), -4, -23, 8, 7); R(c, K('#0a0810'), -1, -21, 5, 5); R(c, K(P.glow), 1, -19, 2, 1); R(c, K(P.glow), 3, -19, 1, 1);
+    R(c, K(P.glow), -4, -10, 8, 1);
+    // staff
+    R(c, K('#4a3a2a'), 6, -26, 2, 26); R(c, K(P.glow), 4, -30, 6, 6); R(c, '#fff', 6, -28, 2, 2);
+    var cast = e.state === 'windup' ? e.st / 32 : 0;
+    AB.glow(c, 7, -27, 12 + cast * 14, P.glow, 0.5 + cast * 0.4);
+    finish(e, c, 0, 2 - hov, t);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  }
+};
+
+/* ===================== BOMBER ===================== */
+E.bomber = {
+  name: 'Powder Imp', w: 12, h: 14, hp: 24, dmg: 30, gold: 4,
+  onDeath: function (e, w) {
+    w.explode(e.x + e.w / 2, e.y + e.h / 2, 40, e.dmg * 0.7, 'e', { color: '#ff6a1a' });
+  },
+  update: function (e, w) {
+    var p = w.player, dx = pdx(e, w), adx = Math.abs(dx);
+    e.st++;
+    if (e.state === 'idle') {
+      patrol(e, w, 0.8);
+      if (canSee(e, w, 190)) { e.state = 'chase'; e.st = 0; }
+    } else if (e.state === 'chase') {
+      face(e, w);
+      if (AB.floorAhead(e, w.level, e.face, 6) && !AB.wallAhead(e, w.level, e.face)) walk(e, w, e.face, 1.55);
+      else { stand(e, w); if (AB.wallAhead(e, w.level, e.face) && e.onGround) e.vy = -5.4; }
+      if (AB.wallAhead(e, w.level, e.face) && e.onGround && e.st % 20 === 0) e.vy = -5.4;
+      if (adx < 26 && Math.abs(pdy(e, w)) < 26) { e.state = 'fuse'; e.st = 0; e.tele = true; }
+      if (!canSee(e, w, 260)) { e.state = 'idle'; }
+    } else if (e.state === 'fuse') {
+      stand(e, w); e.vx *= 0.5;
+      if (e.st % 6 === 0) AB.sfx('click');
+      if (e.st >= 30 * e.atkMul) { e.tele = false; e.hp = 0; w.killEnemy(e, {}); }
+    }
+  },
+  draw: function (e, c, cx, cy, t) {
+    var o = begin(e, c, cx, cy, t), K = colorFn(e), P = e.pal;
+    shadow(c, o.x, o.y, 12);
+    c.translate(o.x, o.y); c.scale(e.face, 1);
+    var fuse = e.state === 'fuse', blink = fuse && ((e.t >> 2) & 1);
+    var moving = Math.abs(e.vx) > 0.2, sw = moving ? Math.round(Math.sin(e.t * 0.5) * 2) : 0;
+    R(c, K(P.dark), -4 + sw, -4, 3, 4); R(c, K(P.dark), 1 - sw, -4, 3, 4);
+    R(c, K(blink ? '#ff4a3a' : P.cloth), -5, -11, 10, 8);
+    R(c, K(blink ? '#ffcaa0' : P.skin), -4, -14, 8, 6); R(c, K('#0a0810'), 0, -12, 3, 2); R(c, K(P.glow), 1, -12, 1, 1);
+    R(c, K(P.dark), -7, -9, 3, 3);
+    // bomb pack
+    R(c, '#1a1420', -9, -12, 7, 7); R(c, blink ? '#ff6a4a' : '#4a4a58', -8, -11, 5, 5);
+    R(c, '#ffb04a', -7, -15, 1, 3); R(c, '#fff', -7, -16 - ((e.t >> 1) & 1), 1, 1);
+    AB.glow(c, -6, -15, fuse ? 20 : 8, '#ff8a2a', fuse ? 0.8 : 0.4);
+    finish(e, c, 0, 0, t);
+    c.setTransform(1, 0, 0, 1, 0, 0);
+  }
+};
+
+AB.drawEnemy = function (e, c, cx, cy, t) {
+  if (e.pvp) return;   // drawn as a player
+  var sx = e.x - cx;
+  if (sx < -120 || sx > AB.W + 120 || e.y - cy < -140 || e.y - cy > AB.H + 140) return;
+  c.save();
+  e.def.draw(e, c, cx, cy, t);
+  c.restore();
+};
 })();
