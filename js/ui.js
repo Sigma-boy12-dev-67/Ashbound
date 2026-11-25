@@ -106,7 +106,8 @@ S.title = {
     this.menu = new Menu([
       { label: 'DESCEND', act: function () { game.go('loadout'); AB.sfx('confirm'); } },
       { label: 'RESUME DESCENT', hidden: true, act: function () { if (self.cp) { AB.sfx('confirm'); game.resumeRun(self.cp); } } },
-      { label: 'ONLINE CO-OP', act: function () { game.go('online'); AB.sfx('confirm'); } },
+      { label: 'ONLINE CO-OP', act: function () { game.go('online', { mode: 'coop' }); AB.sfx('confirm'); } },
+      { label: 'PVP CORNER', act: function () { game.go('online', { mode: 'pvp' }); AB.sfx('confirm'); } },
       { label: 'THE FORGE', act: function () { game.go('forge'); AB.sfx('confirm'); } },
       { label: 'OPTIONS', act: function () { game.go('options', { from: 'title' }); AB.sfx('confirm'); } },
       { label: 'CHRONICLE', act: function () { game.go('stats'); AB.sfx('confirm'); } }
