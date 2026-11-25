@@ -1,5 +1,5 @@
 /* ============================================================
-   Ashbound online layer 2: co-op rooms (2-4 players).
+   Ashbound online layer 2: co-op rooms (any number of players).
 
    HOW IT WORKS
    - Everybody runs their OWN character locally, so movement and attacks feel instant.
@@ -14,7 +14,7 @@
 (function () {
 'use strict';
 var AB = window.AB, N = AB.net, T = AB.T;
-var O = AB.online = { S: null, MAXP: 4 };
+var O = AB.online = { S: null, MAXP: 0 };   // MAXP 0 = no player limit
 
 /* ---------- compact player pack / unpack ---------- */
 var PK = ['x', 'y', 'vx', 'vy', 'face', 'state', 'anim', 't', 'rollT', 'rollDir', 'iframes', 'hurtT', 'guard', 'guardSlot', 'parryT', 'drinkT', 'flash', 'buffT', 'landSq', 'deadT', 'hp'];
@@ -72,6 +72,8 @@ function Session(role, code) {
 O.Session = Session;
 
 function genCode() { var c = 'ABCDEFGHJKMNPQRSTUVWXYZ', s = ''; for (var i = 0; i < 5; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
+O.PARTY_DMG = 0.75;   // monsters hit teammates a little softer online: their position on the host is always slightly behind
+O.REVIVE_T = 720;     // a fallen player gets back up after 12 seconds while a teammate still stands
 O.cleanCode = function (s) { return String(s || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5); };
 
 O.create = function (setup) {
@@ -83,7 +85,7 @@ O.create = function (setup) {
       return N.db.get('rooms/' + code + '/meta').then(function (m) {
         if (m && tries++ < 6) return attempt();
         var S = new Session('host', code); S.setup = setup;
-        var meta = { host: S.uid, hostName: S.name, state: 'lobby', stage: 0, seed: Math.floor(Math.random() * 1e9), created: Date.now(), max: O.MAXP };
+        var meta = { host: S.uid, hostName: S.name, state: 'lobby', stage: 0, seed: Math.floor(Math.random() * 1e9), created: Date.now() };
         return N.db.set(S.base + '/meta', meta).then(function () {
           N.db.onDisc(S.base);
           return S.enter();
@@ -104,7 +106,7 @@ O.join = function (code, setup) {
     if (m.state !== 'lobby') throw new Error('That descent has already begun.');
     return N.db.get('rooms/' + code + '/players').then(function (pl) {
       var n = pl ? Object.keys(pl).length : 0;
-      if (n >= (m.max || O.MAXP) && !(pl && pl[N.user.uid])) throw new Error('That room is full.');
+      if (O.MAXP && n >= O.MAXP && !(pl && pl[N.user.uid])) throw new Error('That room is full.');
       var S = new Session('client', code); S.setup = setup;
       return S.enter().then(function () { O.S = S; return S; });
     });
@@ -113,7 +115,7 @@ O.join = function (code, setup) {
 
 Session.prototype.selfInfo = function () {
   var s = this.setup || {};
-  return { name: this.name, w0: s.w0 || 'ashblade', w1: s.w1 || 'hunterbow', sk: s.sk || 'firebomb', resume: s.resume ? 1 : 0, maxHp: s.maxHp || 100, ready: this.role === 'host' ? 1 : 0, joined: Date.now() };
+  return { name: this.name, w0: s.w0 || 'ashblade', w1: s.w1 || 'hunterbow', sk: s.sk || 'firebomb', resume: s.resume ? 1 : 0, maxHp: s.maxHp || 100, joined: Date.now() };
 };
 Session.prototype.enter = function () {
   var self = this, b = this.base;
@@ -204,14 +206,29 @@ Session.prototype.shareProj = function (w, o) {
   if (o.color) q.c = o.color;
   this.emit(q);
 };
-Session.prototype.onLocalDeath = function (w) { w.toast('You have fallen. Your party fights on...', 'skull', '#ff6a6a'); this.sendNow = true; };
+Session.prototype.onLocalDeath = function (w) { w.player.reviveT = 0; w.toast('You have fallen. A teammate can still bring you back...', 'skull', '#ff6a6a'); this.sendNow = true; };
+/* a fallen player returns beside a standing teammate after a while, so nobody sits out a whole stage */
+Session.prototype.tickRevive = function (w) {
+  var p = w.player;
+  if (!p.dead) { p.reviveT = 0; return; }
+  var tg = this.spectateTarget(w);
+  if (!tg) { p.reviveT = 0; return; }
+  if (++p.reviveT < O.REVIVE_T) return;
+  p.reviveT = 0; p.dead = false; p.deadT = 0; p.state = 'idle'; p.hp = Math.max(1, Math.round(p.s.maxHp * 0.5));
+  p.x = tg.x; p.y = tg.y - 4; p.vx = 0; p.vy = 0; p.iframes = 150; p.hurtT = 0; p.atk = null;
+  w.ring(p.x + 5, p.y + 11, 80, '#9ae8ff'); w.flashScreen('#9ae8ff', 0.4); AB.sfx('altar');
+  w.burst(p.x + 5, p.y + 11, '#9ae8ff', 24, { vx: 3, vy: 3, life: 30, size: 2, glow: true });
+  w.toast('You rise again beside ' + (tg.name || 'your party') + '.', 'heart', '#9ae8ff');
+  this.sendNow = true;
+};
 Session.prototype.requestPortal = function (w) {
   if (this.role === 'host') { if (!this.nextAt) { this.nextAt = w.t + 150; w.toast('The party descends in 3 seconds...', 'portal', '#b08aff'); this.emit({ k: 'toast', m: 'The party descends in 3 seconds...', ic: 'portal', c: '#b08aff' }); } return; }
   if (!this.portalSent) { this.portalSent = true; this.emit({ k: 'portal' }); w.toast('Waiting for the host...', 'portal', '#b08aff'); AB.sfx('portal'); }
 };
 Session.prototype.hurtRemote = function (w, g, dmg, srcX, o) {
   if (g.dead || g.iframes > 0 || g.netIf > 0) return 'ignored';
-  g.netIf = 14;
+  g.netIf = 40;
+  dmg = Math.max(1, dmg * O.PARTY_DMG);
   this.emit({ k: 'hurt', to: g.remote, d: Math.round(dmg), sx: Math.round(srcX), sp: o.spike ? 1 : 0, ex: o.explosion ? 1 : 0, pr: o.proj ? 1 : 0, st: o.status || 0 });
   return 'hit';
 };
