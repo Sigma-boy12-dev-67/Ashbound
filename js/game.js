@@ -2,7 +2,7 @@
 'use strict';
 var AB = window.AB;
 var S = AB.scenes;
-AB.VERSION = '1.5.1';
+AB.VERSION = '1.6.0';
 
 function Game(canvas) {
   this.cv = canvas; this.c = canvas.getContext('2d');
@@ -87,6 +87,38 @@ Game.prototype.startOnline = function (sess) {
   this.run = run;
   this.go('play', { fresh: true, stage: sess.meta.stage || 0, online: sess });
 };
+/* PvP: everybody fights with the same plain gear (no Forge upgrades, no boons): only the weapons and skill they pick */
+Game.prototype.makePvpRun = function (lo) {
+  var s = AB.newStats(); s.flasks = 2;
+  return { seed: 1, stats: s, hp: s.maxHp, weapons: [AB.makeWeapon(lo.w0, 0), AB.makeWeapon(lo.w1, 0)], skills: [lo.sk, null],
+    flasks: 2, gold: 0, embers: 0, kills: 0, time: 0, damageTaken: 0, bossKills: 0, boonIds: {}, freeOffer: false, turretLife: 480, carPotions: 0, carFound: false };
+};
+Game.prototype.startPvp = function (sess) {
+  var st = sess.setup || {}, run = this.makePvpRun({ w0: st.w0, w1: st.w1, sk: st.sk });
+  run.seed = sess.meta.seed; sess.round = 0; sess.scores = {};
+  this.run = run;
+  this.go('play', { fresh: true, stage: 0, online: sess });
+};
+/* PvP: the next round, a fresh arena for everybody */
+Game.prototype.pvpRound = function (n) {
+  var self = this, w = this.world, r = this.run, sess = w && w.online;
+  if (!sess || this.pending) return;
+  sess.round = n; r.hp = r.stats.maxHp; r.flasks = r.stats.flasks;
+  var idx = n % AB.BIOMES.length;
+  this.later(function () {
+    self.world = new AB.World(self, r, idx, sess);
+    AB.audio.musicPlay(AB.BIOMES[idx].music); AB.audio.setIntensity(0.6);
+  });
+};
+Game.prototype.finishPvp = function (sess, info) {
+  info = info || {};
+  var res = { pvp: true, abandoned: !!info.abandoned, error: sess.error || '', winner: info.wl || sess.lastWin || '', scores: sess.scores || {}, sides: sess.sides || [], rounds: (sess.round || 0) + 1 };
+  var me = sess.keyOf ? sess.keyOf(sess.uid) : '';
+  res.won = !!(info.wl && sess.sides.some(function (s) { return s.label === info.wl && s.members.indexOf(sess.uid) >= 0; }));
+  sess.leave();
+  this.world = null; this.run = null;
+  this.pending = null; this.fadeDir = 1; this.pending = { name: 'pvpend', arg: res };
+};
 /* co-op: the whole party moves to the next stage together (the host decides when) */
 Game.prototype.onlineStage = function (n) {
   var self = this, w = this.world, r = this.run, sess = w && w.online;
@@ -114,6 +146,7 @@ Game.prototype.finishRun = function (win, abandoned) {
   var r = this.run, w = this.world, sv = AB.save.data, st = sv.stats;
   if (!r) { this.go('title'); return; }
   var sess = w && w.online, mode = sess ? 'coop' : 'solo';
+  if (sess && sess.pvp) { this.finishPvp(sess, { abandoned: true }); return; }   // PvP never touches saved descents or embers
   if (AB.net.canSave() && w) {
     /* signed in: every descent is recorded. One that is left unfinished is also saved so it can be resumed. */
     var reached = win ? AB.BIOMES.length : w.stage + 1, result = win ? 'victory' : (abandoned ? 'incomplete' : 'died');
@@ -152,7 +185,7 @@ S.play = {
     this.pauseMenu = new AB.Menu([
       { label: 'RESUME', act: function () { self.pauseMenu = null; AB.sfx('click'); } },
       { label: 'OPTIONS', act: function () { g.setScene('options', { from: 'pause' }); } },
-      { label: g.world && g.world.online ? 'LEAVE PARTY' : 'ABANDON RUN', act: function () { g.finishRun(false, true); } }
+      { label: g.world && g.world.online ? (g.world.online.pvp ? 'LEAVE MATCH' : 'LEAVE PARTY') : 'ABANDON RUN', act: function () { g.finishRun(false, true); } }
     ]);
   },
   update: function (I) {
