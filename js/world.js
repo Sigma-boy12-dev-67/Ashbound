@@ -7,7 +7,7 @@ function World(game, run, stageIdx, online) {
   this.game = game; this.run = run; this.stage = stageIdx;
   this.online = online || null; this.enemyId = 0; this.projId = 0;
   this.biome = AB.BIOMES[stageIdx];
-  this.level = new AB.Level(stageIdx, stageIdx, run.seed + stageIdx * 7919);
+  this.level = new AB.Level(stageIdx, stageIdx, run.seed + stageIdx * 7919, !!(online && online.pvp));
   this.level.renderStatic();
   var L = this.level;
   this.player = new AB.Player(run, L.start.x, L.start.y);
@@ -27,6 +27,7 @@ function World(game, run, stageIdx, online) {
   this.cam.x = AB.clamp(p.x - AB.W / 2, 0, L.W * T - AB.W);
   this.cam.y = AB.clamp(p.y - AB.H * 0.62, 0, L.H * T - AB.H);
   this.banner = { title: this.biome.name, sub: this.biome.sub, t: 0, max: 170 };
+  if (this.online && this.online.pvp) this.online.pvpStart(this);
   if (AB.cloud && AB.cloud.worldStart) AB.cloud.worldStart(this);
 }
 AB.World = World;
@@ -172,7 +173,7 @@ World.prototype.explode = function (x, y, r, dmg, team, o) {
     }
     this.player = keep;
   }
-  if (this.online && this.online.capturing && team === 'e') this.online.emit({ k: 'x', x: Math.round(x), y: Math.round(y), r: Math.round(r), c: o.color || 0 });
+  if (this.online && ((this.online.capturing && team === 'e') || (this.online.pvp && team === 'p'))) this.online.emit({ k: 'x', u: this.online.uid, x: Math.round(x), y: Math.round(y), r: Math.round(r), c: o.color || 0 });
 };
 
 /* ---------- player offense ---------- */
@@ -244,6 +245,7 @@ World.prototype.chain = function (from, dmg, n) {
 World.prototype.damageEnemy = function (e, dmg, o) {
   if (e.dead || e.spawnT > 0 || e.invuln > 0) return false;
   o = o || {};
+  if (e.pvp) return this.online.pvpHit(this, e, dmg, o);
   if (this.online && this.online.role === 'client' && !o.remote) return this.online.reportHit(this, e, dmg, o);
   if (e.def.mitigate) { dmg = e.def.mitigate(e, dmg, o, this); if (dmg <= 0) return false; }
   if (e.armor) dmg *= (1 - e.armor);
@@ -579,6 +581,7 @@ World.prototype.update = function (I) {
     if (on) on.capturing = true;
     for (i = this.enemies.length - 1; i >= 0; i--) {
       var e = this.enemies[i];
+      if (e.pvp) continue;   // a stand-in for an opposing player, not a monster
       if (host) this.player = on.targetFor(this, e);
       AB.updateEnemy(e, this);
       if (e.dead) { this.enemies.splice(i, 1); }
