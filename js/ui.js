@@ -275,8 +275,8 @@ S.loadout = {
     }
     function owned(order, tbl) { return order.filter(function (id) { return tbl[id]; }); }
     this.menu = new Menu([
-      { label: function () { return 'PRIMARY    < ' + AB.WEAPONS[self.w0].name.toUpperCase() + ' >'; }, adj: function (d) { self.w0 = cyc(owned(AB.WEAPON_ORDER, sv.wUnlock), self.w0, d, self.w1); AB.sfx('click'); } },
-      { label: function () { return 'SECONDARY  < ' + AB.WEAPONS[self.w1].name.toUpperCase() + ' >'; }, adj: function (d) { self.w1 = cyc(owned(AB.WEAPON_ORDER, sv.wUnlock), self.w1, d, self.w0); AB.sfx('click'); } },
+      { label: function () { return 'PRIMARY    < ' + AB.WEAPONS[self.w0].name.toUpperCase() + ' >'; }, adj: function (d) { var n = cyc(owned(AB.WEAPON_ORDER, sv.wUnlock), self.w0, d); if (n === self.w1) self.w1 = self.w0; self.w0 = n; AB.sfx('click'); } },
+      { label: function () { return 'SECONDARY  < ' + AB.WEAPONS[self.w1].name.toUpperCase() + ' >'; }, adj: function (d) { var n = cyc(owned(AB.WEAPON_ORDER, sv.wUnlock), self.w1, d); if (n === self.w0) self.w0 = self.w1; self.w1 = n; AB.sfx('click'); } },
       { label: function () { return 'SKILL      < ' + AB.SKILLS[self.sk].name.toUpperCase() + ' >'; }, adj: function (d) { self.sk = cyc(owned(AB.SKILL_ORDER, sv.sUnlock), self.sk, d); AB.sfx('click'); } },
       { label: function () { return 'ASCENSION  < ' + sv.asc + ' >'; }, hidden: this.maxAsc < 1, adj: function (d) { sv.asc = AB.clamp(sv.asc + d, 0, self.maxAsc); AB.sfx('click'); } },
       { label: 'BEGIN DESCENT', act: function () { sv.lastW0 = self.w0; sv.lastW1 = self.w1; sv.lastSk = self.sk; AB.save.write(); AB.sfx('confirm'); game.startRun({ w0: self.w0, w1: self.w1, sk: self.sk }); } }
