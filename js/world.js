@@ -571,7 +571,7 @@ World.prototype.update = function (I) {
   this.updateCar();
   p.update(this, I);
   if (this.over && p.dead) { this.overT++; }
-  if (on) on.preTick(this);
+  if (on) { on.preTick(this); on.tickRevive(this); }
 
   // enemies (an online client only animates what the host tells it about)
   if (cli) on.updateProxies(this);
