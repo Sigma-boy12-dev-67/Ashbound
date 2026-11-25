@@ -4,10 +4,10 @@ var AB = window.AB;
 var T = AB.T;
 var TILE = AB.TILE = { AIR: 0, SOLID: 1, ONEWAY: 2, SPIKE: 3, GATE: 4 };
 
-function Level(bi, stage, seed) {
-  this.bi = bi; this.stage = stage; this.seed = seed;
+function Level(bi, stage, seed, pvp) {
+  this.bi = bi; this.stage = stage; this.seed = seed; this.pvp = !!pvp;
   this.biome = AB.BIOMES[bi];
-  this.build();
+  if (this.pvp) this.buildArena(); else this.build();
 }
 AB.Level = Level;
 
@@ -217,6 +217,30 @@ Level.prototype.build = function () {
       });
     }
   }
+  this.px = { w: W * T, h: H * T };
+};
+
+/* PvP: one open arena with a few tiers of platforms and no monsters, chests, shops or exits */
+Level.prototype.buildArena = function () {
+  var AW = 63, H = this.H = 40, gy = 30, W = this.W = AW + 3, x, y, i, p;
+  var GY = [], CL = [], PIT = [];
+  for (x = 0; x < AW; x++) { GY.push(gy); CL.push(gy - 16); PIT.push(0); }
+  this.tiles = new Uint8Array(W * H);
+  for (x = 0; x < W; x++) {
+    for (y = gy; y < H; y++) this.tiles[y * W + x] = TILE.SOLID;
+    for (y = 0; y < gy - 16; y++) this.tiles[y * W + x] = TILE.SOLID;
+    if (x < 2 || x >= W - 2) for (y = 0; y < H; y++) this.tiles[y * W + x] = TILE.SOLID;
+  }
+  var plats = [
+    { x0: 6, x1: 12, y: gy - 4 }, { x0: 27, x1: 38, y: gy - 4 }, { x0: 53, x1: 59, y: gy - 4 },
+    { x0: 16, x1: 23, y: gy - 8 }, { x0: 42, x1: 49, y: gy - 8 }, { x0: 30, x1: 35, y: gy - 12 }
+  ];
+  for (i = 0; i < plats.length; i++) { p = plats[i]; for (x = p.x0; x <= p.x1; x++) if (this.tiles[p.y * W + x] === TILE.AIR) this.tiles[p.y * W + x] = TILE.ONEWAY; }
+  this.GY = GY; this.CL = CL; this.PIT = PIT; this.plats = plats;
+  this.arenas = []; this.boss = null; this.npcs = []; this.chests = []; this.props = []; this.golds = []; this.spawns = [];
+  this.torches = [6, 18, 31, 44, 57].map(function (tx) { return { x: tx * T + 8, y: (gy - 5) * T }; });
+  this.start = { x: 4 * T, y: gy * T };
+  this.groundY = gy * T;
   this.px = { w: W * T, h: H * T };
 };
 
