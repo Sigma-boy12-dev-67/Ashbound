@@ -68,6 +68,7 @@ function Session(role, code) {
   this.seq = 0; this.hostSeq = 0; this.cSeq = {}; this.cEv = {}; this.lastP = {}; this.world = null; this.capturing = false;
   this.hostRaw = null; this.cRaw = {}; this.lastHostAt = Date.now(); this.started = false; this.closed = false; this.nextAt = 0; this.wipeT = 0;
   this.error = ''; this.setup = null; this.onStart = null; this.onChange = null; this.bytes = 0; this.snaps = 0;
+  this.pvp = false; this.round = 0; this.scores = {}; this.px = {}; this.lastHit = {}; this.deadSeen = {}; this.pvpOver = null; this.sides = [];
 }
 O.Session = Session;
 
@@ -76,7 +77,7 @@ O.PARTY_DMG = 0.75;   // monsters hit teammates a little softer online: their po
 O.REVIVE_T = 720;     // a fallen player gets back up after 12 seconds while a teammate still stands
 O.cleanCode = function (s) { return String(s || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5); };
 
-O.create = function (setup) {
+O.create = function (setup, mode) {
   return N.init().then(function () {
     if (!N.user) throw new Error('Sign in or choose "Play as guest" first.');
     var tries = 0;
@@ -84,8 +85,8 @@ O.create = function (setup) {
       var code = genCode();
       return N.db.get('rooms/' + code + '/meta').then(function (m) {
         if (m && tries++ < 6) return attempt();
-        var S = new Session('host', code); S.setup = setup;
-        var meta = { host: S.uid, hostName: S.name, state: 'lobby', stage: 0, seed: Math.floor(Math.random() * 1e9), created: Date.now() };
+        var S = new Session('host', code); S.setup = setup; S.pvp = mode === 'pvp';
+        var meta = { host: S.uid, hostName: S.name, state: 'lobby', stage: 0, seed: Math.floor(Math.random() * 1e9), created: Date.now(), mode: S.pvp ? 'pvp' : 'coop', wins: 3 };
         return N.db.set(S.base + '/meta', meta).then(function () {
           N.db.onDisc(S.base);
           return S.enter();
@@ -107,7 +108,7 @@ O.join = function (code, setup) {
     return N.db.get('rooms/' + code + '/players').then(function (pl) {
       var n = pl ? Object.keys(pl).length : 0;
       if (O.MAXP && n >= O.MAXP && !(pl && pl[N.user.uid])) throw new Error('That room is full.');
-      var S = new Session('client', code); S.setup = setup;
+      var S = new Session('client', code); S.setup = setup; S.pvp = m.mode === 'pvp';
       return S.enter().then(function () { O.S = S; return S; });
     });
   });
@@ -115,7 +116,7 @@ O.join = function (code, setup) {
 
 Session.prototype.selfInfo = function () {
   var s = this.setup || {};
-  return { name: this.name, w0: s.w0 || 'ashblade', w1: s.w1 || 'hunterbow', sk: s.sk || 'firebomb', resume: s.resume ? 1 : 0, maxHp: s.maxHp || 100, joined: Date.now() };
+  return { name: this.name, w0: s.w0 || 'ashblade', w1: s.w1 || 'hunterbow', sk: s.sk || 'firebomb', resume: s.resume ? 1 : 0, maxHp: s.maxHp || 100, team: s.team | 0, joined: Date.now() };
 };
 Session.prototype.enter = function () {
   var self = this, b = this.base;
@@ -145,7 +146,9 @@ Session.prototype.count = function () { return Object.keys(this.players).length;
 /* host: begin the descent for everyone */
 Session.prototype.start = function (stage) {
   if (this.role !== 'host') return Promise.resolve();
-  return N.db.update(this.base + '/meta', { state: 'playing', stage: stage || 0, startedAt: Date.now() });
+  var m = { state: 'playing', stage: stage || 0, startedAt: Date.now() };
+  if (this.pvp && this.setup && this.setup.wins) m.wins = this.setup.wins;
+  return N.db.update(this.base + '/meta', m);
 };
 Session.prototype.hostGone = function (msg) {
   if (this.closed) return;
@@ -170,7 +173,7 @@ Session.prototype.syncGhosts = function (old) {
   for (uid in this.ghosts) {
     if (!this.players[uid]) {
       if (this.world) this.world.toast((this.ghosts[uid].name || 'A player') + ' left the descent.', 'skull', '#ff8a6a');
-      delete this.ghosts[uid]; delete this.lastP[uid];
+      delete this.ghosts[uid]; delete this.lastP[uid]; this.dropProxy(uid);
     }
   }
 };
@@ -178,6 +181,7 @@ Session.prototype.syncGhosts = function (old) {
 /* ---------- world hooks ---------- */
 Session.prototype.attach = function (w) {
   this.world = w; this.nextAt = 0; this.wipeT = 0; this.portalSent = false; this.ghosts = {};
+  this.px = {}; this.lastHit = {}; this.deadSeen = {}; this.pvpOver = null; this.pvpDone = false;
   for (var uid in this.players) if (uid !== this.uid) this.ghosts[uid] = mkGhost(this, uid);
 };
 Session.prototype.playersOf = function (w) {
@@ -193,7 +197,7 @@ Session.prototype.spectateTarget = function (w) {
 };
 Session.prototype.partyList = function () {
   var a = [];
-  for (var uid in this.ghosts) { var g = this.ghosts[uid]; a.push({ name: g.name, hp: g.hp, max: g.s.maxHp, dead: g.dead }); }
+  for (var uid in this.ghosts) { var g = this.ghosts[uid]; a.push({ name: g.name, hp: g.hp, max: g.s.maxHp, dead: g.dead, color: this.pvp ? this.teamColor(uid) : null }); }
   return a;
 };
 Session.prototype.emit = function (ev) {
@@ -206,10 +210,11 @@ Session.prototype.shareProj = function (w, o) {
   if (o.color) q.c = o.color;
   this.emit(q);
 };
-Session.prototype.onLocalDeath = function (w) { w.player.reviveT = 0; w.toast('You have fallen. A teammate can still bring you back...', 'skull', '#ff6a6a'); this.sendNow = true; };
+Session.prototype.onLocalDeath = function (w) { w.player.reviveT = 0; w.toast(this.pvp ? 'You are down. Watch the rest of the round.' : 'You have fallen. A teammate can still bring you back...', 'skull', '#ff6a6a'); this.sendNow = true; };
 /* a fallen player returns beside a standing teammate after a while, so nobody sits out a whole stage */
 Session.prototype.tickRevive = function (w) {
   var p = w.player;
+  if (this.pvp) return;
   if (!p.dead) { p.reviveT = 0; return; }
   var tg = this.spectateTarget(w);
   if (!tg) { p.reviveT = 0; return; }
@@ -275,8 +280,10 @@ Session.prototype.preTick = function (w) {
     g = this.ghosts[uid]; if (g.tx === undefined) continue;
     if (Math.abs(g.tx - g.x) > 160 || Math.abs(g.ty - g.y) > 160) { g.x = g.tx; g.y = g.ty; } else { g.x += (g.tx - g.x) * 0.4; g.y += (g.ty - g.y) * 0.4; }
   }
+  if (this.pvp) this.pvpSync(w);
 };
 Session.prototype.postTick = function (w) {
+  if (this.pvp) { this.pvpPost(w); return; }
   var host = this.role === 'host', now = Date.now();
   if (host) {
     if (w.t % 6 === 0) this.sendSnap(w);
@@ -305,7 +312,7 @@ Session.prototype.sendSnap = function (w) {
     for (var k = 0; k < all.length; k++) if (Math.abs(all[k].x - o.x) < 540 && Math.abs(all[k].y - o.y) < 360) return true;
     return false;
   }
-  for (i = 0; i < w.enemies.length; i++) { e = w.enemies[i]; if (!e.dead && (e.boss || near(e))) E.push(packEnemy(e)); }
+  for (i = 0; i < w.enemies.length; i++) { e = w.enemies[i]; if (!e.dead && !e.pvp && (e.boss || near(e))) E.push(packEnemy(e)); }
   for (i = 0; i < w.projs.length; i++) {
     pr = w.projs[i];
     if (pr.team === 'e' && !pr.dead && near(pr)) J.push([pr.id, r1(pr.x), r1(pr.y), r1(pr.vx), r1(pr.vy), pr.kind, pr.color || 0, pr.w, pr.h, pr.grav || 0, pr.small ? 1 : 0, pr.life]);
@@ -342,6 +349,10 @@ Session.prototype.hostEvents = function (w, uid, evs) {
       e = null;
     } else if (ev.k === 'pj') {
       this.visualProj(w, ev); this.emit(ev.k === 'pj' ? { k: 'pj', u: uid, x: ev.x, y: ev.y, vx: ev.vx, vy: ev.vy, kd: ev.kd, w: ev.w, h: ev.h, l: ev.l, g: ev.g, c: ev.c } : ev);
+    } else if (ev.k === 'pv' && this.pvp) {
+      this.pvpRelay(w, uid, ev);
+    } else if (ev.k === 'x' && this.pvp) {
+      w.explode(ev.x, ev.y, ev.r, 0, 'fx', { color: ev.c || undefined }); this.emit({ k: 'x', u: uid, x: ev.x, y: ev.y, r: ev.r, c: ev.c });
     } else if (ev.k === 'portal') {
       if (!this.nextAt) { this.nextAt = w.t + 150; var m = ((g && g.name) || 'A player') + ' entered the portal. Descending in 3 seconds...'; w.toast(m, 'portal', '#b08aff'); this.emit({ k: 'toast', m: m, ic: 'portal', c: '#b08aff' }); }
     }
@@ -387,7 +398,7 @@ Session.prototype.applySnap = function (w, s) {
 };
 Session.prototype.applyEnemies = function (w, E) {
   var map = {}, i, e, o, seen = {};
-  for (i = 0; i < w.enemies.length; i++) map[w.enemies[i].id] = w.enemies[i];
+  for (i = 0; i < w.enemies.length; i++) if (!w.enemies[i].pvp) map[w.enemies[i].id] = w.enemies[i];
   for (i = 0; i < E.length; i++) {
     o = E[i]; seen[o.i] = 1; e = map[o.i];
     if (!e) {
@@ -404,7 +415,7 @@ Session.prototype.applyEnemies = function (w, E) {
     if (o.wg !== undefined) e.wing = o.wg; if (o.ph !== undefined) e.ph = o.ph; e.dir = o.dr || e.dir; e.onGround = !!o.og; e.slow = o.sl ? 5 : 0;
     if (o.ax) e.aux = o.ax;
   }
-  for (i = w.enemies.length - 1; i >= 0; i--) { e = w.enemies[i]; if (!seen[e.id] && !e.dead) { e.dead = true; w.enemies.splice(i, 1); } }
+  for (i = w.enemies.length - 1; i >= 0; i--) { e = w.enemies[i]; if (!e.pvp && !seen[e.id] && !e.dead) { e.dead = true; w.enemies.splice(i, 1); } }
 };
 Session.prototype.applyProjs = function (w, J) {
   var map = {}, i, p, o, seen = {};
@@ -432,6 +443,7 @@ Session.prototype.updateProxies = function (w) {
 /* ---------- client: events ---------- */
 Session.prototype.clientEvent = function (w, ev) {
   if (ev.k !== 'stage' && ev.k !== 'wipe' && ev.k !== 'win' && ev.sg !== w.stage) return;
+  if (this.pvp && ev.k === 'rd') { this.pvpRoundEnd(w, ev); return; }
   var i;
   switch (ev.k) {
     case 'hurt':
@@ -447,7 +459,7 @@ Session.prototype.clientEvent = function (w, ev) {
     case 'sfx': AB.sfx(ev.n); break;
     case 'shk': w.shake(ev.a); break;
     case 'toast': w.toast(ev.m, ev.ic, ev.c); break;
-    case 'x': w.explode(ev.x, ev.y, ev.r, 0, 'fx', { color: ev.c || undefined }); break;
+    case 'x': if (ev.u !== this.uid) w.explode(ev.x, ev.y, ev.r, 0, 'fx', { color: ev.c || undefined }); break;
     case 'pj': if (ev.u !== this.uid) this.visualProj(w, ev); break;
     case 'stage': if (ev.n > w.stage) AB.game.onlineStage(ev.n); break;
     case 'win': AB.game.finishRun(true); break;
@@ -484,14 +496,149 @@ AB.World.prototype.drawGhosts = function (c, cx, cy, t) {
     var g = S.ghosts[uid]; if (g.fresh) continue;
     AB.drawPlayer(c, g, cx, cy, t);
     var x = Math.round(g.x + 5 - cx), y = Math.round(g.y - cy);
-    AB.text(c, g.name, x, y - 19, g.dead ? '#8a8096' : '#9ae8ff', 1, 'c', true);
+    AB.text(c, g.name, x, y - 19, g.dead ? '#8a8096' : (S.pvp ? S.teamColor(uid) : '#9ae8ff'), 1, 'c', true);
     if (!g.dead) AB.bar(c, x - 9, y - 9, 18, 2, Math.max(0, g.hp), g.s.maxHp, '#6ad86a');
   }
 };
 
 /* ---------- checkpoints: signed-in players save their descent at the start of every stage ---------- */
 AB.cloud.worldStart = function (w) {
-  if (!N.canSave()) return;
+  if (!N.canSave() || (w.online && w.online.pvp)) return;
   AB.cloud.saveCheckpoint(AB.cloud.packRun(w.run, w.stage, w.player.hp, w.online ? 'coop' : 'solo'));
+};
+
+/* ===================== PVP ===================== */
+O.TEAMS = [{ n: 'SOLO', c: '#c8beb0' }, { n: 'RED', c: '#ff6a6a' }, { n: 'BLUE', c: '#6aa8ff' }, { n: 'GREEN', c: '#6aff8a' }, { n: 'GOLD', c: '#ffd24a' }];
+O.PVP_DMG = 0.8;       // player-versus-player hits are a little softer than against monsters
+O.PVP_GRACE = 200;     // ticks at the start of a round when nobody can be hurt
+O.PVP_LIMIT = 7200;    // 2 minutes, then the side with the most health left wins the round
+var P = Session.prototype;
+P.teamOf = function (uid) { var p = this.players[uid]; return p ? (p.team | 0) : 0; };
+P.keyOf = function (uid) { var t = this.teamOf(uid); return t > 0 ? 't' + t : 'u' + uid; };
+P.teamColor = function (uid) { return O.TEAMS[this.teamOf(uid)].c; };
+P.isOpp = function (uid) { return uid !== this.uid && this.keyOf(uid) !== this.keyOf(this.uid); };
+/* the sides of the match in a fixed order that every player computes the same way */
+P.sidesNow = function () {
+  var map = {}, order = [], uid, k, i;
+  var ids = Object.keys(this.players).sort();
+  for (i = 0; i < ids.length; i++) {
+    uid = ids[i]; k = this.keyOf(uid);
+    if (!map[k]) { var t = this.teamOf(uid); map[k] = { key: k, team: t, label: t > 0 ? O.TEAMS[t].n : (this.players[uid].name || 'Player'), color: O.TEAMS[t].c, members: [] }; order.push(map[k]); }
+    map[k].members.push(uid);
+  }
+  order.sort(function (a, b) { return (a.team || 9) - (b.team || 9) || (a.key < b.key ? -1 : 1); });
+  return order;
+};
+P.sideLabel = function (key) { for (var i = 0; i < this.sides.length; i++) if (this.sides[i].key === key) return this.sides[i].label; return '?'; };
+P.canStartPvp = function () { return this.sidesNow().length >= 2; };
+P.nameOf = function (uid) { if (uid === this.uid) return this.name; var p = this.players[uid]; return p ? p.name : 'Someone'; };
+
+P.pvpStart = function (w) {
+  var i, j, S = this, p = w.player, L = w.level;
+  this.sides = this.sidesNow(); this.roundT = 0;
+  var si = 0, mi = 0, cnt = 1;
+  for (i = 0; i < this.sides.length; i++) { j = this.sides[i].members.indexOf(this.uid); if (j >= 0) { si = i; mi = j; cnt = this.sides[i].members.length; } }
+  var span = L.W * AB.T - 160;
+  var x = 80 + span * (si + 0.5) / Math.max(1, this.sides.length) + (mi - (cnt - 1) / 2) * 18;
+  p.x = Math.round(AB.clamp(x, 40, L.W * AB.T - 56)); p.y = L.groundY - 22; p.face = x < L.W * AB.T / 2 ? 1 : -1; p.noHurtT = O.PVP_GRACE;
+  w.cam.x = AB.clamp(p.x - AB.W / 2, 0, L.W * AB.T - AB.W);
+  var mine = this.sides[si] ? this.sides[si].label : '';
+  w.banner = { title: 'ROUND ' + (this.round + 1), sub: this.sides.length > 1 ? 'You fight for ' + mine : 'Waiting for opponents', t: 0, max: 170 };
+  w.toast('First to ' + this.winsNeeded() + ' round wins takes the match.', 'skull', '#ffd24a');
+  this.pvpSync(w);
+};
+P.winsNeeded = function () { return (this.meta && this.meta.wins) || 3; };
+P.dropProxy = function (uid) {
+  var e = this.px[uid]; if (!e) return; delete this.px[uid];
+  var w = this.world; if (!w) return; var i = w.enemies.indexOf(e); if (i >= 0) w.enemies.splice(i, 1);
+};
+/* every opposing player is mirrored by a hidden stand-in the weapons, skills and arrows can strike */
+P.pvpSync = function (w) {
+  var uid, g, e, grace = w.t < O.PVP_GRACE;
+  for (uid in this.ghosts) {
+    g = this.ghosts[uid];
+    if (!this.isOpp(uid)) { this.dropProxy(uid); continue; }
+    e = this.px[uid];
+    if (!e) {
+      e = this.px[uid] = { pvp: uid, id: 'pv_' + uid, type: 'pvp', x: g.x, y: g.y, w: 10, h: 22, hp: 100, maxHp: 100, dead: false, spawnT: 0, invuln: 0, def: {}, armor: 0, flash: 0, face: 1, boss: false, vx: 0, vy: 0 };
+      w.enemies.push(e);
+    }
+    e.x = g.x; e.y = g.y; e.face = g.face; e.hp = g.hp; e.maxHp = g.s.maxHp;
+    e.invuln = (grace || g.dead || g.fresh || g.iframes > 0) ? 1 : 0;
+  }
+  for (uid in this.px) if (!this.ghosts[uid]) this.dropProxy(uid);
+};
+P.pvpHit = function (w, e, dmg, o) {
+  var d = Math.max(1, Math.round(dmg * O.PVP_DMG)), dir = o.dir || 1, crit = !!o.crit;
+  w.text(e.x + 5, e.y - 2, d, crit ? '#ffe84a' : '#ffffff', crit);
+  w.burst(e.x + 5, e.y + 11, '#c02a3a', crit ? 8 : 4, { vx: 2, vy: 2, life: 18, size: 2, dx: dir * 0.8 });
+  if (o.src !== 'dot') { AB.sfx(crit ? 'crit' : 'hit'); AB.input.vibrate(crit ? 18 : 8); }
+  var sx = Math.round(e.x + 5 - dir * 24), st = o.ignite ? 'burn' : 0;
+  if (this.role === 'host') { this.lastHit[e.pvp] = { by: this.uid, t: w.t }; this.emit({ k: 'hurt', to: e.pvp, d: d, sx: sx, sp: 0, ex: 0, pr: 0, st: st }); }
+  else this.emit({ k: 'pv', to: e.pvp, d: d, sx: sx, st: st });
+  return true;
+};
+/* host: a client's hit on somebody. Apply it to the host's own character or pass it on to the victim. */
+P.pvpRelay = function (w, from, ev) {
+  var d = Math.max(1, Math.min(90, ev.d | 0));
+  if (ev.to === this.uid) { this.lastHit[this.uid] = { by: from, t: w.t }; if (!w.player.dead) w.hurtPlayer(d, ev.sx, { status: ev.st || undefined }); }
+  else if (this.players[ev.to]) { this.lastHit[ev.to] = { by: from, t: w.t }; this.emit({ k: 'hurt', to: ev.to, d: d, sx: ev.sx, sp: 0, ex: 0, pr: 0, st: ev.st || 0 }); }
+};
+/* per tick, both roles: host referees, everyone moves on together after a round ends */
+P.pvpPost = function (w) {
+  var host = this.role === 'host', now = Date.now();
+  if (host) {
+    if (w.t % 6 === 0) this.sendSnap(w);
+    this.pvpReferee(w);
+  } else {
+    if (w.t % 4 === 0 || this.sendNow) { this.sendNow = false; this.sendPacket(w); }
+    if (now - this.lastHostAt > 12000 && !this.closed) this.hostGone('Lost connection to the host.');
+  }
+  if (this.pvpOver && w.t >= this.pvpOver.at) {
+    var po = this.pvpOver; this.pvpOver = null;
+    if (po.nx < 0) AB.game.finishPvp(this, po); else AB.game.pvpRound(po.nx);
+  }
+};
+P.pvpReferee = function (w) {
+  var all = this.playersOf(w), i, q, uid, alive = {}, nAlive = 0, key, hp = {};
+  for (i = 0; i < all.length; i++) {
+    q = all[i]; uid = q === w.player ? this.uid : q.remote;
+    if (q.dead && !this.deadSeen[uid]) {
+      this.deadSeen[uid] = 1;
+      var lh = this.lastHit[uid], who = this.nameOf(uid), msg = lh && w.t - lh.t < 360 && lh.by !== uid ? this.nameOf(lh.by) + ' defeated ' + who : who + ' fell';
+      w.toast(msg, 'skull', '#ff9a6a'); this.emit({ k: 'toast', m: msg, ic: 'skull', c: '#ff9a6a' });
+    }
+    if (q.dead || q.fresh) continue;
+    key = this.keyOf(uid); if (!alive[key]) { alive[key] = 1; nAlive++; }
+    hp[key] = (hp[key] || 0) + q.hp;
+  }
+  if (this.pvpDone || w.t < O.PVP_GRACE || this.sides.length < 2) return;
+  var timeout = w.t > O.PVP_LIMIT, win = null;
+  if (nAlive === 1) win = Object.keys(alive)[0];
+  else if (nAlive === 0) win = '';
+  else if (timeout) { var best = -1; for (key in hp) if (hp[key] > best) { best = hp[key]; win = key; } }
+  if (win === null) return;
+  if (win) this.scores[win] = (this.scores[win] || 0) + 1;
+  var over = win && this.scores[win] >= this.winsNeeded();
+  var ev = { k: 'rd', r: this.round, wk: win, wl: win ? this.sideLabel(win) : '', sc: this.scores, nx: over ? -1 : this.round + 1, to: timeout && nAlive > 1 ? 1 : 0 };
+  this.emit(ev); this.pvpRoundEnd(w, ev);
+};
+P.pvpRoundEnd = function (w, ev) {
+  if (this.pvpDone || ev.r !== this.round) return;
+  this.pvpDone = true;
+  this.scores = ev.sc || {}; this.lastWin = ev.wl;
+  var t = ev.wl ? ev.wl + (ev.nx < 0 ? ' WIN THE MATCH' : ' WIN THE ROUND') : 'DRAW';
+  w.banner = { title: t, sub: ev.nx < 0 ? 'Match over' : (ev.to ? 'Time ran out: most health wins' : 'Next round soon'), t: 0, max: 170 };
+  AB.sfx(ev.nx < 0 ? 'altar' : 'portal');
+  this.pvpOver = { at: w.t + 170, nx: ev.nx, wl: ev.wl };
+};
+/* top-centre scoreboard and clock */
+O.pvpHud = function (c, w) {
+  var S = w.online, i, tot = 0, parts = [];
+  for (i = 0; i < S.sides.length; i++) { var sd = S.sides[i], txt = sd.label + ' ' + (S.scores[sd.key] || 0); parts.push({ t: txt, c: sd.color, w: txt.length * 6 + 14 }); tot += txt.length * 6 + 14; }
+  var x = Math.round(AB.W / 2 - tot / 2) + 4;
+  for (i = 0; i < parts.length; i++) { AB.text(c, parts[i].t, x, 4, parts[i].c, 1, 'l', true); x += parts[i].w; }
+  var left = Math.max(0, Math.ceil((O.PVP_LIMIT - w.t) / 60)), mm = Math.floor(left / 60), ss = left % 60;
+  AB.text(c, 'ROUND ' + (S.round + 1) + '  ' + mm + ':' + (ss < 10 ? '0' : '') + ss + '  FIRST TO ' + S.winsNeeded(), AB.W / 2, 14, '#8a8096', 1, 'c', true);
 };
 })();
