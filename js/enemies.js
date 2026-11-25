@@ -432,6 +432,7 @@ E.bomber = {
 };
 
 AB.drawEnemy = function (e, c, cx, cy, t) {
+  if (e.pvp) return;   // drawn as a player
   var sx = e.x - cx;
   if (sx < -120 || sx > AB.W + 120 || e.y - cy < -140 || e.y - cy > AB.H + 140) return;
   c.save();
