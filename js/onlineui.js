@@ -148,8 +148,8 @@ S.lobby = {
     var self = this, sv = AB.save.data, s = this.setup, sess = this.sess, G = this.game;
     function owned(order, tbl) { return order.filter(function (id) { return tbl[id]; }); }
     var items = [
-      { label: function () { return 'PRIMARY    < ' + AB.WEAPONS[s.w0].name.toUpperCase() + ' >'; }, adj: function (d) { s.w0 = self.cyc(owned(AB.WEAPON_ORDER, sv.wUnlock), s.w0, d, s.w1); AB.sfx('click'); self.push(); } },
-      { label: function () { return 'SECONDARY  < ' + AB.WEAPONS[s.w1].name.toUpperCase() + ' >'; }, adj: function (d) { s.w1 = self.cyc(owned(AB.WEAPON_ORDER, sv.wUnlock), s.w1, d, s.w0); AB.sfx('click'); self.push(); } },
+      { label: function () { return 'PRIMARY    < ' + AB.WEAPONS[s.w0].name.toUpperCase() + ' >'; }, adj: function (d) { var n = self.cyc(owned(AB.WEAPON_ORDER, sv.wUnlock), s.w0, d); if (n === s.w1) s.w1 = s.w0; s.w0 = n; AB.sfx('click'); self.push(); } },
+      { label: function () { return 'SECONDARY  < ' + AB.WEAPONS[s.w1].name.toUpperCase() + ' >'; }, adj: function (d) { var n = self.cyc(owned(AB.WEAPON_ORDER, sv.wUnlock), s.w1, d); if (n === s.w0) s.w0 = s.w1; s.w1 = n; AB.sfx('click'); self.push(); } },
       { label: function () { return 'SKILL      < ' + AB.SKILLS[s.sk].name.toUpperCase() + ' >'; }, adj: function (d) { s.sk = self.cyc(owned(AB.SKILL_ORDER, sv.sUnlock), s.sk, d); AB.sfx('click'); self.push(); } }
     ];
     if (sess.pvp) {
