@@ -121,6 +121,7 @@ N.useMock = function (name, guest) {
     var d = m.data;
     if (d.t === 'hello') { ch.postMessage({ t: 'dump', tree: tree }); }
     else if (d.t === 'dump') { if (!Object.keys(tree).length) { tree = d.tree; notify(''); } }
+    else if (N.mockLag) setTimeout(function () { apply(d); }, N.mockLag);   // test only: simulated network delay
     else apply(d);
   };
   if (ch) ch.postMessage({ t: 'hello' });
