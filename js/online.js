@@ -535,7 +535,7 @@ P.nameOf = function (uid) { if (uid === this.uid) return this.name; var p = this
 
 P.pvpStart = function (w) {
   var i, j, S = this, p = w.player, L = w.level;
-  this.sides = this.sidesNow(); this.roundT = 0;
+  this.sides = this.sidesNow(); this.t0 = 0; this.waiting = true;
   var si = 0, mi = 0, cnt = 1;
   for (i = 0; i < this.sides.length; i++) { j = this.sides[i].members.indexOf(this.uid); if (j >= 0) { si = i; mi = j; cnt = this.sides[i].members.length; } }
   var span = L.W * AB.T - 160;
@@ -554,7 +554,12 @@ P.dropProxy = function (uid) {
 };
 /* every opposing player is mirrored by a hidden stand-in the weapons, skills and arrows can strike */
 P.pvpSync = function (w) {
-  var uid, g, e, grace = w.t < O.PVP_GRACE;
+  var uid, g, e, wait = false;
+  for (uid in this.ghosts) if (this.ghosts[uid].fresh) wait = true;
+  /* the round only starts counting once every player has really arrived (a slow phone must not lose by default) */
+  if (wait && w.t < 2400) { this.t0 = w.t; w.player.noHurtT = Math.max(w.player.noHurtT, O.PVP_GRACE); }
+  this.waiting = wait && w.t < 2400;
+  var grace = w.t - this.t0 < O.PVP_GRACE;
   for (uid in this.ghosts) {
     g = this.ghosts[uid];
     if (!this.isOpp(uid)) { this.dropProxy(uid); continue; }
@@ -612,8 +617,8 @@ P.pvpReferee = function (w) {
     key = this.keyOf(uid); if (!alive[key]) { alive[key] = 1; nAlive++; }
     hp[key] = (hp[key] || 0) + q.hp;
   }
-  if (this.pvpDone || w.t < O.PVP_GRACE || this.sides.length < 2) return;
-  var timeout = w.t > O.PVP_LIMIT, win = null;
+  if (this.pvpDone || this.waiting || w.t - this.t0 < O.PVP_GRACE || this.sides.length < 2) return;
+  var timeout = w.t - this.t0 > O.PVP_LIMIT, win = null;
   if (nAlive === 1) win = Object.keys(alive)[0];
   else if (nAlive === 0) win = '';
   else if (timeout) { var best = -1; for (key in hp) if (hp[key] > best) { best = hp[key]; win = key; } }
@@ -638,7 +643,8 @@ O.pvpHud = function (c, w) {
   for (i = 0; i < S.sides.length; i++) { var sd = S.sides[i], txt = sd.label + ' ' + (S.scores[sd.key] || 0); parts.push({ t: txt, c: sd.color, w: txt.length * 6 + 14 }); tot += txt.length * 6 + 14; }
   var x = Math.round(AB.W / 2 - tot / 2) + 4;
   for (i = 0; i < parts.length; i++) { AB.text(c, parts[i].t, x, 4, parts[i].c, 1, 'l', true); x += parts[i].w; }
-  var left = Math.max(0, Math.ceil((O.PVP_LIMIT - w.t) / 60)), mm = Math.floor(left / 60), ss = left % 60;
+  if (S.waiting) AB.text(c, 'WAITING FOR ALL PLAYERS...', AB.W / 2, 28, '#ffd24a', 1, 'c', true);
+  var left = Math.max(0, Math.ceil((O.PVP_LIMIT - (w.t - S.t0)) / 60)), mm = Math.floor(left / 60), ss = left % 60;
   AB.text(c, 'ROUND ' + (S.round + 1) + '  ' + mm + ':' + (ss < 10 ? '0' : '') + ss + '  FIRST TO ' + S.winsNeeded(), AB.W / 2, 14, '#8a8096', 1, 'c', true);
 };
 })();
